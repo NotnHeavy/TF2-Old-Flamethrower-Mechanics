@@ -190,6 +190,14 @@ methodmap Vector < Pointer
         return this.LengthSqr() < val * val;
     }
 
+    // Generate random co-ordinates within a specific minValue/maxValue range.
+    public void Random(float minValue, float maxValue)
+    {
+        this.X = GetRandomFloat(minValue, maxValue);
+        this.Y = GetRandomFloat(minValue, maxValue);
+        this.Z = GetRandomFloat(minValue, maxValue);
+    }
+
     // Vector assignation.
     public void Assign(Vector vector)
     {
@@ -247,7 +255,7 @@ stock void CrossProduct(const Vector a, const Vector b, Vector result)
     result.Z = a.X * b.Y - a.Y * b.X;
 }
 
-stock void VectorVectors(const Vector forwardVector, Vector right, Vector up)
+stock void VectorVectors(const Vector forwardVector, Vector& right, Vector& up)
 {
     if (forwardVector.X == 0.00 && forwardVector.Y == 0.00)
     {
@@ -287,4 +295,12 @@ stock Vector GetEntVector(int entity, PropType type, const char[] property, int 
     float buffer[3];
     GetEntPropVector(entity, type, property, buffer, index);
     return allocate ? Vector.Malloc(buffer[0], buffer[1], buffer[2]) : Vector.Accumulator(buffer[0], buffer[1], buffer[2]);
+}
+
+// Get a random vector. This vector is stored onto the accumulator and must be assigned to your desired vector, unless allocate is set to true.
+stock Vector RandomVector(float minValue, float maxValue, bool allocate = false)
+{
+    Vector random = allocate ? Vector.Malloc() : Vector.Accumulator();
+    random.Random(minValue, maxValue);
+    return random;
 }

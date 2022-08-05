@@ -120,6 +120,14 @@ methodmap QAngle < Pointer
         return SquareRoot(this.LengthSqr());
     }
 
+    // Generate random co-ordinates within a specific minValue/maxValue range.
+    public void Random(float minValue, float maxValue)
+    {
+        this.X = GetRandomFloat(minValue, maxValue);
+        this.Y = GetRandomFloat(minValue, maxValue);
+        this.Z = GetRandomFloat(minValue, maxValue);
+    }
+
     // Vector assignation.
     public void Assign(QAngle vector)
     {
@@ -180,7 +188,7 @@ stock bool QAnglesAreEqual(const QAngle left, const QAngle right, float toleranc
 }
 
 // Euler QAngle -> Basis Vectors. Each vector is optional.
-stock void AngleVectors(const QAngle angles, Vector forwardVector = view_as<Vector>(NULL), Vector right = view_as<Vector>(NULL), Vector up = view_as<Vector>(NULL))
+stock void AngleVectors(const QAngle angles, Vector& forwardVector = view_as<Vector>(NULL), Vector& right = view_as<Vector>(NULL), Vector& up = view_as<Vector>(NULL))
 {
     // bit of a cheap implementation but i'm not really a maths wizard (yet).
     float anglesBuffer[3];
@@ -206,10 +214,18 @@ stock void AngleVectors(const QAngle angles, Vector forwardVector = view_as<Vect
         up.SetFromBuffer(upBuffer);
 }
 
-// The QAngle returned is stored onto the accumulator and must be assigned to your desired vector, unless allocate is set to true.
+// The QAngle returned is stored onto the accumulator and must be assigned to your desired QAngle, unless allocate is set to true.
 stock QAngle GetEntQAngle(int entity, PropType type, const char[] property, int index = 0, bool allocate = false)
 {
     float buffer[3];
     GetEntPropVector(entity, type, property, buffer, index);
     return allocate ? QAngle.Malloc(buffer[0], buffer[1], buffer[2]) : QAngle.Accumulator(buffer[0], buffer[1], buffer[2]);
+}
+
+// Get a random QAngle. This QAngle is stored onto the accumulator and must be assigned to your desired QAngle, unless allocate is set to true.
+stock QAngle RandomAngle(float minValue, float maxValue, bool allocate = false)
+{
+    QAngle random = allocate ? QAngle.Malloc() : QAngle.Accumulator();
+    random.Random(minValue, maxValue);
+    return random;
 }
