@@ -42,6 +42,12 @@
                 "windows" "272"
                 "linux"   "273"
             }
+
+            "CTFFlameEntity::m_vecInitialPos"
+            {
+                "windows" "860"
+                "linux"   "880"
+            }
         }
     }
 }

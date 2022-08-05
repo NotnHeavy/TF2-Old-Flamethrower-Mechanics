@@ -5,6 +5,9 @@
 // For dynamic memory allocation, this uses Scags' SM-Memory extension.
 // https://forums.alliedmods.net/showthread.php?t=327729#
 
+// For TF2 attributes, this uses nosoop's tf2attributes plugin, which is a fork of FlaminSarge's.
+
+
 // Requires the following from SMTC:
 // SMTC.inc
 // Pointer.inc
@@ -16,8 +19,10 @@
 
 #include <sourcemod>
 #include <smmem>
+#include <tf2attributes>
 #include <dhooks>
 #include <sdkhooks>
+#include <tf2>
 
 #include "SMTC/SMTC"
 #include "SMTC/Pointer"
@@ -29,6 +34,8 @@
 #define TF_FLAMETHROWER_MUZZLEPOS_FORWARD		70.00
 #define TF_FLAMETHROWER_MUZZLEPOS_RIGHT			12.00
 #define TF_FLAMETHROWER_MUZZLEPOS_UP			-12.00
+
+#define OFM_CUTLVECTOR_SIZE 20 // in case cutlvector.inc isn't included from SMTC.
 
 //////////////////////////////////////////////////////////////////////////////
 // GLOBALS                                                                  //
@@ -87,6 +94,26 @@ enum
 	EFL_NO_DAMAGE_FORCES =		(1<<31),	// Doesn't accept forces from physics damage
 };
 
+// CTFFlameEntity offsets. Should be used with CTFFlameEntity_Base.
+enum
+{
+    CTFFLAMEENTITY_OFFSET_M_VECINITIALPOS = 0,                                                           // Vector m_vecInitialPos;
+    CTFFLAMEENTITY_OFFSET_M_VECPREVPOS = CTFFLAMEENTITY_OFFSET_M_VECINITIALPOS + VECTOR_SIZE,            // Vector m_vecPrevPos;
+    CTFFLAMEENTITY_OFFSET_M_VECBASEVELOCITY = CTFFLAMEENTITY_OFFSET_M_VECPREVPOS + VECTOR_SIZE,          // Vector m_vecBaseVelocity;
+    CTFFLAMEENTITY_OFFSET_M_VECATTACKERVELOCITY = CTFFLAMEENTITY_OFFSET_M_VECBASEVELOCITY + VECTOR_SIZE, // Vector m_vecAttackerVelocity;
+    CTFFLAMEENTITY_OFFSET_M_FLTIMEREMOVE = CTFFLAMEENTITY_OFFSET_M_VECATTACKERVELOCITY + VECTOR_SIZE,    // float m_flTimeRemove;
+    CTFFLAMEENTITY_OFFSET_M_IDMGTYPE = CTFFLAMEENTITY_OFFSET_M_FLTIMEREMOVE + 4,                         // int m_iDmgType;
+    CTFFLAMEENTITY_OFFSET_M_FLDMGAMOUNT = CTFFLAMEENTITY_OFFSET_M_IDMGTYPE + 4,                          // float m_flDmgAmount;
+    CTFFLAMEENTITY_OFFSET_M_HENTITIESBURNT = CTFFLAMEENTITY_OFFSET_M_FLDMGAMOUNT + 4,                    // CUtlVector<EHANDLE> m_hEntitiesBurnt;
+    CTFFLAMEENTITY_OFFSET_M_HATTACKER = CTFFLAMEENTITY_OFFSET_M_HENTITIESBURNT + OFM_CUTLVECTOR_SIZE,    // EHANDLE m_hAttacker;
+    CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM = CTFFLAMEENTITY_OFFSET_M_HATTACKER + 4,                       // int m_iAttackerTeam;
+    CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND = CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM + 4,                 // bool m_bCritFromBehind;
+    CTFFLAMEENTITY_OFFSET_M_BBURNEDENEMY = CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND + 1,                  // bool m_bBurnedEnemy;
+    CTFFLAMEENTITY_OFFSET_M_HFLAMETHROWER = CTFFLAMEENTITY_OFFSET_M_BBURNEDENEMY + 2,                    // CHandle<CTFFlameThrower> m_hFlameThrower;
+
+    CTFFLAMEENTITY_SIZE = CTFFLAMEENTITY_OFFSET_M_HFLAMETHROWER + 4
+};
+
 static Handle SDKCall_CBaseEntity_Create;
 static Handle SDKCall_CBaseEntity_CalcAbsoluteVelocity;
 static Handle SDKCall_CBaseEntity_SetAbsVelocity;
@@ -96,6 +123,8 @@ static Handle SDKCall_CBaseCombatCharacter_Weapon_ShootPosition;
 
 static ConVar tf_flamethrower_velocity;
 static ConVar tf_flamethrower_vecrand;
+
+static int CTFFlameEntity_Base;
 
 //////////////////////////////////////////////////////////////////////////////
 // PLUGIN INFO                                                              //
@@ -153,6 +182,8 @@ public void OnPluginStart()
     PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseCombatCharacter::Weapon_ShootPosition()");
     PrepSDKCall_SetReturnInfo(SDKType_Vector, SDKPass_ByValue); // Vector
     SDKCall_CBaseCombatCharacter_Weapon_ShootPosition = EndPrepSDKCall();
+
+    CTFFlameEntity_Base = config.GetOffset("CTFFlameEntity::m_vecInitialPos");
 
     delete config;
 
@@ -212,7 +243,6 @@ static Vector Weapon_ShootPosition(int pThis)
     float buffer[3];
     SDKCall(SDKCall_CBaseCombatCharacter_Weapon_ShootPosition, pThis, buffer);
     vecResult.SetFromBuffer(buffer);
-    PrintToServer("help! %f", buffer[0]);
     return vecResult;
 }
 
@@ -250,7 +280,7 @@ static Vector GetMuzzlePosHelper(int pThis, bool bVisualPos, bool allocate = fal
 // If allocated is set to false, this vector will be put onto the accumulator and must be assigned immediately. Otherwise, remember to free() when done.
 static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 {
-    return GetMuzzlePosHelper(pThis, false);
+    return GetMuzzlePosHelper(pThis, allocate);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -259,7 +289,7 @@ static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 
 static void SetCritFromBehind(Pointer pThis, bool bState)
 {
-    pThis.Write(bState, 944 /*964*/, NumberType_Int8);
+    pThis.Write(bState, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND, NumberType_Int8);
 }
 
 static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, float flSpeed, int iDmgType, float m_flDmgAmount, bool bAlwaysCritFromBehind, bool bRandomize = true)
@@ -274,34 +304,39 @@ static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, flo
         return -1;
 
     Pointer flamePointer = Pointer(GetEntityAddress(pFlame));
+    Vector m_vecBaseVelocity = view_as<Vector>(flamePointer + CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_VECBASEVELOCITY);
     if (HasEntProp(pOwner, Prop_Send, "m_hOwnerEntity") && GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity") != -1)
-        flamePointer.WriteEHandle(GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity"), 940 /*960*/); // pFlame->m_hAttacker = pOwner->GetOwnerEntity();
+        flamePointer.WriteEHandle(GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity"), CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER); // pFlame->m_hAttacker = pOwner->GetOwnerEntity();
     else
-        flamePointer.WriteEHandle(pOwner, 940 /*960*/); // pFlame->m_hAttacker = pOwner;
-    if (flamePointer.DereferenceEHandle(940 /*960*/) != -1)
-        flamePointer.Write(GetEntProp(flamePointer.DereferenceEHandle(940 /*960*/), Prop_Send, "m_iTeamNum"), 944 /*964*/); // pFlame->m_iAttackerTeam = pAttacker->GetTeamNumber();
+        flamePointer.WriteEHandle(pOwner, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER); // pFlame->m_hAttacker = pOwner;
+    
+    // pFlame->m_iAttackerTeam = pAttacker->GetTeamNumber();
+    if (flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER) != -1)
+        flamePointer.Write(GetEntProp(flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER), Prop_Send, "m_iTeamNum"), CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM);
 
     // Set team.
     SetEntProp(pFlame, Prop_Send, "m_iTeamNum", GetEntProp(pOwner, Prop_Send, "m_iTeamNum")); // pFlame->ChangeTeam( pOwner->GetTeamNumber() );
-    flamePointer.Write(iDmgType, 912 /*932*/); // pFlame->m_iDmgType = iDmgType;
-    flamePointer.Write(m_flDmgAmount, 916 /*936*/); // pFlame->m_flDmgAmount = flDmgAmount;
+    flamePointer.Write(iDmgType, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_IDMGTYPE); // pFlame->m_iDmgType = iDmgType;
+    flamePointer.Write(m_flDmgAmount, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_FLDMGAMOUNT); // pFlame->m_flDmgAmount = flDmgAmount;
 
-    // Setip the initial velocity.
+    // Setup the initial velocity.
     STACK_ALLOC(vecForward, Vector, VECTOR_SIZE);
     AngleVectors(vecAngles, vecForward);
 
-    memcpy(flamePointer.Get(884 /*904*/, 1), vecForward * flSpeed, VECTOR_SIZE); // pFlame->m_vecBaseVelocity = vecForward * velocity;
+    float flFlameLifeMult = 1.00;
+    flFlameLifeMult = TF2Attrib_HookValueFloat(flFlameLifeMult, "mult_flame_life", flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER)); // CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pFlame->m_hAttacker, flFlameLifeMult, mult_flame_life );
+    float velocity = flFlameLifeMult * flSpeed;
+    memcpy(m_vecBaseVelocity, vecForward * velocity, VECTOR_SIZE); // pFlame->m_vecBaseVelocity = vecForward * velocity;
+    float iFlameSizeMult = 1.00;
+    iFlameSizeMult = TF2Attrib_HookValueFloat(iFlameSizeMult, "mult_flame_size", flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER)); // CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pFlame->m_hAttacker, iFlameSizeMult, mult_flame_size );
 
-    /*
-    if ( bRandomize )
-	{
-		pFlame->m_vecBaseVelocity += RandomVector( -velocity * iFlameSizeMult * tf_flamethrower_vecrand.GetFloat(), velocity * iFlameSizeMult * tf_flamethrower_vecrand.GetFloat() );
-	}
-    */
+    // pFlame->m_vecBaseVelocity += RandomVector( -velocity * iFlameSizeMult * tf_flamethrower_vecrand.GetFloat(), velocity * iFlameSizeMult * tf_flamethrower_vecrand.GetFloat() );
+    if (bRandomize)
+        m_vecBaseVelocity.Assign(m_vecBaseVelocity + RandomVector(-velocity * iFlameSizeMult * tf_flamethrower_vecrand.FloatValue, velocity * iFlameSizeMult * tf_flamethrower_vecrand.FloatValue));
 
     if (HasEntProp(pOwner, Prop_Send, "m_hOwnerEntity") && GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity") != -1)
-        memcpy(flamePointer.Get(896 /*916*/, 1), GetAbsVelocity(GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity")), VECTOR_SIZE); // pFlame->m_vecAttackerVelocity = pOwner->GetOwnerEntity()->GetAbsVelocity();
-    SDKCall(SDKCall_CBaseEntity_SetAbsVelocity, pFlame, flamePointer.Get(884 /*904*/, 1)); // pFlame->SetAbsVelocity( pFlame->m_vecBaseVelocity );	
+        memcpy(flamePointer + CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_VECATTACKERVELOCITY, GetAbsVelocity(GetEntPropEnt(pOwner, Prop_Send, "m_hOwnerEntity")), VECTOR_SIZE); // pFlame->m_vecAttackerVelocity = pOwner->GetOwnerEntity()->GetAbsVelocity();
+    SDKCall(SDKCall_CBaseEntity_SetAbsVelocity, pFlame, m_vecBaseVelocity); // pFlame->SetAbsVelocity( pFlame->m_vecBaseVelocity );	
 
     // Setup the initial angles.
     SDKCall(SDKCall_CBaseEntity_SetAbsAngles, pFlame, vecAngles); // pFlame->SetAbsAngles( vecAngles );
@@ -332,13 +367,6 @@ public void OnGameFrame()
             eyeAngles.SetFromBuffer(buffer);
 
             CreateFlameEntity(GetFlameOriginPos(weapon), eyeAngles, weapon, tf_flamethrower_velocity.FloatValue, DMG_IGNITE | DMG_PREVENT_PHYSICS_FORCE | DMG_PREVENT_PHYSICS_FORCE, 6.82 * 8.00, false);
-        }
-        
-        if (frame % 66 == 0)
-        {
-            STACK_ALLOC(a, Vector, VECTOR_SIZE);
-            a.Assign(Weapon_ShootPosition(client));
-            PrintToChatAll("Weapon_ShootPosition(): %f: %f: %f", a.X, a.Y, a.Z);
         }
     }
 }
