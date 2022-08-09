@@ -7,12 +7,12 @@
 
 // For TF2 attributes, this uses nosoop's tf2attributes plugin, which is a fork of FlaminSarge's.
 
-
 // Requires the following from SMTC:
 // SMTC.inc
 // Pointer.inc
 // Vector.inc
 // QAngle.inc
+// tf_shareddefs.inc
 
 #pragma semicolon true 
 #pragma newdecls required
@@ -23,11 +23,13 @@
 #include <dhooks>
 #include <sdkhooks>
 #include <tf2>
+#include <tf2_stocks>
 
 #include "SMTC/SMTC"
 #include "SMTC/Pointer"
 #include "SMTC/Vector"
 #include "SMTC/QAngle"
+#include "SMTC/tf_shareddefs"
 
 #define PLUGIN_NAME "NotnHeavy - Old Flamethrower Mechanics"
 
@@ -37,9 +39,27 @@
 
 #define OFM_CUTLVECTOR_SIZE 20 // in case cutlvector.inc isn't included from SMTC.
 
+// i'm not including the entire enum for this LOL
+// ai_activity.h
+#define ACT_VM_PRIMARYATTACK 180
+
+#define WL_None 0
+#define WL_Feet 1
+#define WL_Waist 2
+#define WL_Eyes 3
+
+#define DMGTYPE DMG_IGNITE | DMG_PREVENT_PHYSICS_FORCE | DMG_PREVENT_PHYSICS_FORCE
+
+#define TF_FLAMETHROWER_AMMO_PER_SECOND_PRIMARY_ATTACK		14.00
+
 //////////////////////////////////////////////////////////////////////////////
 // GLOBALS                                                                  //
 //////////////////////////////////////////////////////////////////////////////
+
+int max(int x, int y)
+{
+    return x > y ? x : y;
+}
 
 // entity flags, CBaseEntity::m_iEFlags
 enum
@@ -106,25 +126,119 @@ enum
     CTFFLAMEENTITY_OFFSET_M_FLDMGAMOUNT = CTFFLAMEENTITY_OFFSET_M_IDMGTYPE + 4,                          // float m_flDmgAmount;
     CTFFLAMEENTITY_OFFSET_M_HENTITIESBURNT = CTFFLAMEENTITY_OFFSET_M_FLDMGAMOUNT + 4,                    // CUtlVector<EHANDLE> m_hEntitiesBurnt;
     CTFFLAMEENTITY_OFFSET_M_HATTACKER = CTFFLAMEENTITY_OFFSET_M_HENTITIESBURNT + OFM_CUTLVECTOR_SIZE,    // EHANDLE m_hAttacker;
-    CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM = CTFFLAMEENTITY_OFFSET_M_HATTACKER + 4,                       // int m_iAttackerTeam;
-    CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND = CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM + 4,                 // bool m_bCritFromBehind;
-    CTFFLAMEENTITY_OFFSET_M_BBURNEDENEMY = CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND + 1,                  // bool m_bBurnedEnemy;
+    //CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM = CTFFLAMEENTITY_OFFSET_M_HATTACKER + 4,                       // int m_iAttackerTeam;
+    CTFFLAMEENTITY_OFFSET_M_BCRITFROMBEHIND = CTFFLAMEENTITY_OFFSET_M_HATTACKER/*CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM*/ + 4,                 // bool m_bCritFromBehind;
+    CTFFLAMEENTITY_OFFSET_M_BBURNEDENEMY = CTFFLAMEENTITY_OFFSET_M_BCRITFROMBEHIND + 1,                  // bool m_bBurnedEnemy;
     CTFFLAMEENTITY_OFFSET_M_HFLAMETHROWER = CTFFLAMEENTITY_OFFSET_M_BBURNEDENEMY + 2,                    // CHandle<CTFFlameThrower> m_hFlameThrower;
 
     CTFFLAMEENTITY_SIZE = CTFFLAMEENTITY_OFFSET_M_HFLAMETHROWER + 4
 };
+
+enum FlameThrowerState_t
+{
+	// Firing states.
+	FT_STATE_IDLE = 0,
+	FT_STATE_STARTFIRING,
+	FT_STATE_FIRING,
+	FT_STATE_SECONDARY,
+};
+
+enum PlayerAnimEvent_t
+{
+	PLAYERANIMEVENT_ATTACK_PRIMARY,
+	PLAYERANIMEVENT_ATTACK_SECONDARY,
+	PLAYERANIMEVENT_ATTACK_GRENADE,
+	PLAYERANIMEVENT_RELOAD,
+	PLAYERANIMEVENT_RELOAD_LOOP,
+	PLAYERANIMEVENT_RELOAD_END,
+	PLAYERANIMEVENT_JUMP,
+	PLAYERANIMEVENT_SWIM,
+	PLAYERANIMEVENT_DIE,
+	PLAYERANIMEVENT_FLINCH_CHEST,
+	PLAYERANIMEVENT_FLINCH_HEAD,
+	PLAYERANIMEVENT_FLINCH_LEFTARM,
+	PLAYERANIMEVENT_FLINCH_RIGHTARM,
+	PLAYERANIMEVENT_FLINCH_LEFTLEG,
+	PLAYERANIMEVENT_FLINCH_RIGHTLEG,
+	PLAYERANIMEVENT_DOUBLEJUMP,
+
+	// Cancel.
+	PLAYERANIMEVENT_CANCEL,
+	PLAYERANIMEVENT_SPAWN,
+
+	// Snap to current yaw exactly
+	PLAYERANIMEVENT_SNAP_YAW,
+
+	PLAYERANIMEVENT_CUSTOM,				// Used to play specific activities
+	PLAYERANIMEVENT_CUSTOM_GESTURE,
+	PLAYERANIMEVENT_CUSTOM_SEQUENCE,	// Used to play specific sequences
+	PLAYERANIMEVENT_CUSTOM_GESTURE_SEQUENCE,
+
+	// TF Specific. Here until there's a derived game solution to this.
+	PLAYERANIMEVENT_ATTACK_PRE,
+	PLAYERANIMEVENT_ATTACK_POST,
+	PLAYERANIMEVENT_GRENADE1_DRAW,
+	PLAYERANIMEVENT_GRENADE2_DRAW,
+	PLAYERANIMEVENT_GRENADE1_THROW,
+	PLAYERANIMEVENT_GRENADE2_THROW,
+	PLAYERANIMEVENT_VOICE_COMMAND_GESTURE,
+	PLAYERANIMEVENT_DOUBLEJUMP_CROUCH,
+	PLAYERANIMEVENT_STUN_BEGIN,
+	PLAYERANIMEVENT_STUN_MIDDLE,
+	PLAYERANIMEVENT_STUN_END,
+	PLAYERANIMEVENT_PASSTIME_THROW_BEGIN,
+	PLAYERANIMEVENT_PASSTIME_THROW_MIDDLE,
+	PLAYERANIMEVENT_PASSTIME_THROW_END,
+	PLAYERANIMEVENT_PASSTIME_THROW_CANCEL,
+
+	PLAYERANIMEVENT_ATTACK_PRIMARY_SUPER,
+
+	PLAYERANIMEVENT_COUNT
+};
+
+enum struct player_t
+{
+    int index;
+
+    float m_flNextPrimaryAttack;
+    float m_flStartFiringTime;
+    float m_flNextPrimaryAttackAnim;
+    float m_flAmmoUseRemainder;
+    int m_iFlamethrowerAmmo;
+
+    int GetAmmoCount(int iAmmoIndex)
+    {
+        return GetEntProp(this.index, Prop_Send, "m_iAmmo", .element = iAmmoIndex);
+    }
+    void SetAmmoCount(int iCount, int iAmmoIndex)
+    {
+        SetEntProp(this.index, Prop_Send, "m_iAmmo", iCount, .element = iAmmoIndex);
+    }
+}
+static player_t PlayerData[MAXPLAYERS + 1];
+
+static DHookSetup DHooks_CTFFlameThrower_PrimaryAttack;
+static DHookSetup DHooks_CTFFlameThrower_FireAirBlast;
+static DHookSetup DHooks_CTFFlameManager_OnCollide;
 
 static Handle SDKCall_CBaseEntity_Create;
 static Handle SDKCall_CBaseEntity_CalcAbsoluteVelocity;
 static Handle SDKCall_CBaseEntity_SetAbsVelocity;
 static Handle SDKCall_CBaseEntity_SetAbsAngles;
 static Handle SDKCall_CBaseEntity_CalcAbsolutePosition;
+static Handle SDKCall_CBaseEntity_EyeAngles;
 static Handle SDKCall_CBaseCombatCharacter_Weapon_ShootPosition;
+static Handle SDKCall_CTFWeaponBase_CanAttack;
+static Handle SDKCall_CTFWeaponBase_CalcIsAttackCritical;
+static Handle SDKCall_CTFWeaponBase_SendWeaponAnim;
+static Handle SDKCall_CTFPlayer_DoAnimationEvent;
+
+static int CTFFlameEntity_Base;
+
+static Address CTFWeaponBase_m_iWeaponMode;
 
 static ConVar tf_flamethrower_velocity;
 static ConVar tf_flamethrower_vecrand;
-
-static int CTFFlameEntity_Base;
 
 //////////////////////////////////////////////////////////////////////////////
 // PLUGIN INFO                                                              //
@@ -148,8 +262,20 @@ public void OnPluginStart()
     LoadTranslations("common.phrases");
     SMTC_Initialize();
 
+    HookEvent("post_inventory_application", PostInventoryApplication);
+
     // Load config data!
     GameData config = LoadGameConfigFile(PLUGIN_NAME);
+
+    DHooks_CTFFlameThrower_PrimaryAttack = DHookCreateFromConf(config, "CTFFlameThrower::PrimaryAttack()");
+    DHookEnableDetour(DHooks_CTFFlameThrower_PrimaryAttack, false, Pre_PrimaryAttack); // just because i don't want to re-write ammo management entirely.
+    DHookEnableDetour(DHooks_CTFFlameThrower_PrimaryAttack, true, Post_PrimaryAttack);
+
+    DHooks_CTFFlameThrower_FireAirBlast = DHookCreateFromConf(config, "CTFFlameThrower::FireAirBlast()");
+    DHookEnableDetour(DHooks_CTFFlameThrower_FireAirBlast, true, FireAirBlast);
+
+    DHooks_CTFFlameManager_OnCollide = DHookCreateFromConf(config, "CTFFlameManager::OnCollide()");
+    DHookEnableDetour(DHooks_CTFFlameManager_OnCollide, false, OnCollide);
 
     StartPrepSDKCall(SDKCall_Static);
     PrepSDKCall_SetFromConf(config, SDKConf_Signature, "CBaseEntity::Create()");
@@ -179,11 +305,38 @@ public void OnPluginStart()
     SDKCall_CBaseEntity_CalcAbsolutePosition = EndPrepSDKCall();
 
     StartPrepSDKCall(SDKCall_Entity);
+    PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseEntity::EyeAngles()");
+    PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain); // QAngle&
+    SDKCall_CBaseEntity_EyeAngles = EndPrepSDKCall();
+
+    StartPrepSDKCall(SDKCall_Entity);
     PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseCombatCharacter::Weapon_ShootPosition()");
     PrepSDKCall_SetReturnInfo(SDKType_Vector, SDKPass_ByValue); // Vector
     SDKCall_CBaseCombatCharacter_Weapon_ShootPosition = EndPrepSDKCall();
 
+    StartPrepSDKCall(SDKCall_Entity);
+    PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CTFWeaponBase::CanAttack()");
+    PrepSDKCall_SetReturnInfo(SDKType_Bool, SDKPass_Plain); // bool
+    SDKCall_CTFWeaponBase_CanAttack = EndPrepSDKCall();
+
+    StartPrepSDKCall(SDKCall_Entity);
+    PrepSDKCall_SetFromConf(config, SDKConf_Signature, "CTFWeaponBase::CalcIsAttackCritical()");
+    SDKCall_CTFWeaponBase_CalcIsAttackCritical = EndPrepSDKCall();
+
+    StartPrepSDKCall(SDKCall_Entity);
+    PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CTFWeaponBase::SendWeaponAnim()");
+    PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain); // int iActivity;
+    PrepSDKCall_SetReturnInfo(SDKType_Bool, SDKPass_Plain);        // bool
+    SDKCall_CTFWeaponBase_SendWeaponAnim = EndPrepSDKCall();
+
+    StartPrepSDKCall(SDKCall_Player);
+    PrepSDKCall_SetFromConf(config, SDKConf_Signature, "CTFPlayer::DoAnimationEvent()");
+    PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain); // PlayerAnimEvent_t event;
+    PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain); // int mData = 0;
+    SDKCall_CTFPlayer_DoAnimationEvent = EndPrepSDKCall();
+
     CTFFlameEntity_Base = config.GetOffset("CTFFlameEntity::m_vecInitialPos");
+    CTFWeaponBase_m_iWeaponMode = view_as<Address>(config.GetOffset("CTFWeaponBase::m_iWeaponMode"));
 
     delete config;
 
@@ -232,6 +385,11 @@ static QAngle GetAbsAngles(int pThis)
     return view_as<QAngle>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_angAbsRotation"));
 }
 
+static QAngle EyeAngles(int pThis)
+{
+    return SDKCall(SDKCall_CBaseEntity_EyeAngles, pThis);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // CBASECOMBATCHARACTER                                                     //
 //////////////////////////////////////////////////////////////////////////////
@@ -247,6 +405,24 @@ static Vector Weapon_ShootPosition(int pThis)
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// CTFPLAYER                                                                //
+//////////////////////////////////////////////////////////////////////////////
+
+static void DoAnimationEvent(int pThis, PlayerAnimEvent_t event, int mData = 0)
+{
+    SDKCall(SDKCall_CTFPlayer_DoAnimationEvent, pThis, event, mData);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// CTFWEAPONBASE                                                            //
+//////////////////////////////////////////////////////////////////////////////
+
+static bool SendWeaponAnim(int pThis, int iActivity)
+{
+    return SDKCall(SDKCall_CTFWeaponBase_SendWeaponAnim, pThis, iActivity);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // CTFFLAMETHROWER                                                          //
 //////////////////////////////////////////////////////////////////////////////
 
@@ -259,7 +435,8 @@ static Vector GetMuzzlePosHelper(int pThis, bool bVisualPos, bool allocate = fal
     {
         STACK_ALLOC(vecForward, Vector, VECTOR_SIZE);
         STACK_ALLOC(vecRight, Vector, VECTOR_SIZE);
-        AngleVectors(GetAbsAngles(pOwner), vecForward, vecRight);
+        STACK_ALLOC(vecUp, Vector, VECTOR_SIZE);
+        AngleVectors(GetAbsAngles(pOwner), vecForward, vecRight, vecUp);
         vecMuzzlePos.Assign(Weapon_ShootPosition(pOwner));
         vecMuzzlePos.Assign(vecMuzzlePos + vecRight * TF_FLAMETHROWER_MUZZLEPOS_RIGHT);
 
@@ -280,7 +457,13 @@ static Vector GetMuzzlePosHelper(int pThis, bool bVisualPos, bool allocate = fal
 // If allocated is set to false, this vector will be put onto the accumulator and must be assigned immediately. Otherwise, remember to free() when done.
 static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 {
-    return GetMuzzlePosHelper(pThis, allocate);
+    return GetMuzzlePosHelper(pThis, false, allocate);
+}
+
+static void SetWeaponState(int pThis, FlameThrowerState_t nWeaponState)
+{
+    // todo: attribute hooks
+    SetEntProp(pThis, Prop_Send, "m_iWeaponState", nWeaponState);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -289,16 +472,11 @@ static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 
 static void SetCritFromBehind(Pointer pThis, bool bState)
 {
-    pThis.Write(bState, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_BCRiTFROMBEHIND, NumberType_Int8);
+    pThis.Write(bState, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_BCRITFROMBEHIND, NumberType_Int8);
 }
 
 static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, float flSpeed, int iDmgType, float m_flDmgAmount, bool bAlwaysCritFromBehind, bool bRandomize = true)
 {
-    // MUST RE-CREATE FUNCTION FOR WINDOWS SUPPORT
-    /*
-    SDKCall(SDKCall_CFFlameEntity_Create, vecOrigin, vecAngles, pOwner, flSpeed, iDmgType, m_flDmgAmount, bAlwaysCritFromBehind, bRandomize);
-    */
-
     int pFlame = SDKCall(SDKCall_CBaseEntity_Create, "tf_flame", vecOrigin, vecAngles, pOwner);
     if (pFlame == -1)
         return -1;
@@ -311,8 +489,8 @@ static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, flo
         flamePointer.WriteEHandle(pOwner, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER); // pFlame->m_hAttacker = pOwner;
     
     // pFlame->m_iAttackerTeam = pAttacker->GetTeamNumber();
-    if (flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER) != -1)
-        flamePointer.Write(GetEntProp(flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER), Prop_Send, "m_iTeamNum"), CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM);
+    //if (flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER) != -1)
+    //    flamePointer.Write(GetEntProp(flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER), Prop_Send, "m_iTeamNum"), CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM);
 
     // Set team.
     SetEntProp(pFlame, Prop_Send, "m_iTeamNum", GetEntProp(pOwner, Prop_Send, "m_iTeamNum")); // pFlame->ChangeTeam( pOwner->GetTeamNumber() );
@@ -321,7 +499,9 @@ static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, flo
 
     // Setup the initial velocity.
     STACK_ALLOC(vecForward, Vector, VECTOR_SIZE);
-    AngleVectors(vecAngles, vecForward);
+    STACK_ALLOC(vecRight, Vector, VECTOR_SIZE);
+    STACK_ALLOC(vecUp, Vector, VECTOR_SIZE);
+    AngleVectors(vecAngles, vecForward, vecRight, vecUp);
 
     float flFlameLifeMult = 1.00;
     flFlameLifeMult = TF2Attrib_HookValueFloat(flFlameLifeMult, "mult_flame_life", flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER)); // CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pFlame->m_hAttacker, flFlameLifeMult, mult_flame_life );
@@ -349,28 +529,6 @@ static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, flo
 // FORWARDS                                                                 //
 //////////////////////////////////////////////////////////////////////////////
 
-public void OnGameFrame()
-{
-    static int frame = 0;
-    ++frame;
-    int client = 1;
-    if (IsClientInGame(client) && GetClientButtons(client) & IN_ATTACK)
-    {
-        int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-        char name[128];
-        GetEntityClassname(weapon, name, sizeof(name));
-        if (weapon != -1 && frame % 3 == 0 && StrEqual(name, "tf_weapon_flamethrower"))
-        {
-            float buffer[3];
-            STACK_ALLOC(eyeAngles, QAngle, QANGLE_SIZE);
-            GetClientEyeAngles(client, buffer);
-            eyeAngles.SetFromBuffer(buffer);
-
-            CreateFlameEntity(GetFlameOriginPos(weapon), eyeAngles, weapon, tf_flamethrower_velocity.FloatValue, DMG_IGNITE | DMG_PREVENT_PHYSICS_FORCE | DMG_PREVENT_PHYSICS_FORCE, 6.82 * 8.00, false);
-        }
-    }
-}
-
 public void OnEntityCreated(int entity, const char[] classname)
 {
     if (1 <= entity <= MaxClients)
@@ -378,30 +536,193 @@ public void OnEntityCreated(int entity, const char[] classname)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// SDKHOOKS                                                                 //
+// HOOKS                                                                    //
 //////////////////////////////////////////////////////////////////////////////
 
 static void SetupPlayerHooks(int entity)
 {
-    SDKHook(entity, SDKHook_OnTakeDamage, OnTakeDamage);
+    PlayerData[entity].index = entity; // dumb shortcut but whatever
+    PlayerData[client].m_flNextPrimaryAttack = 0.00;
 }
 
-public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
+public Action PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
 {
-    // Make the old flame manager not deal any damage.
-    if (IsValidEntity(weapon))
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    PlayerData[client].m_flStartFiringTime = 0.00;
+    PlayerData[client].m_flNextPrimaryAttackAnim = 0.00;
+    PlayerData[client].m_flAmmoUseRemainder = 0.00;
+    return Plugin_Continue;
+}
+
+// pre-call CTFFlameThrower::PrimaryAttack();
+// This is only just so I don't have to re-write ammo management with the flamethrowers.
+MRESReturn Pre_PrimaryAttack(int entity)
+{
+    // Get the owner of this weapon.
+    int pOwner = GetEntPropEnt(entity, Prop_Data, "m_hOwner");
+    if (pOwner == -1)
+        return MRES_Ignored;
+
+    PlayerData[pOwner].m_iFlamethrowerAmmo = PlayerData[pOwner].GetAmmoCount(view_as<int>(TF_AMMO_PRIMARY));
+    return MRES_Ignored;
+}
+
+// post-call CTFFlameThrower::PrimaryAttack();
+// The route I'm taking is hacky; I'm srnot sure what would be the best way to get around with flame visuals otherwise. 
+// Essentially, the original function will still be called. However, there'll be another layer to this function that 
+// spawns the stream of tf_flame entities.
+//
+// This hook emits certain things, either things that I find unnecessary at this moment, or are already handled in the internal function.
+MRESReturn Post_PrimaryAttack(int entity)
+{
+    // Get the pointer for this CTFFlameThrower entity.
+    Pointer pEntity = Pointer(GetEntityAddress(entity));
+    static int frame = 0;
+    ++frame;
+    
+    // Get the owner of this weapon.
+    int pOwner = GetEntPropEnt(entity, Prop_Data, "m_hOwner");
+    if (pOwner == -1)
+        return MRES_Ignored;
+    
+    // Revert ammo to pre-call.
+    PlayerData[pOwner].SetAmmoCount(PlayerData[pOwner].m_iFlamethrowerAmmo, view_as<int>(TF_AMMO_PRIMARY));
+
+    // Check for if we're capable of firing.
+    if (PlayerData[pOwner].m_flNextPrimaryAttack > GetGameTime())
+        return MRES_Ignored;
+    
+    if (!SDKCall(SDKCall_CTFWeaponBase_CanAttack, entity))
     {
-        // TEMP, MUST FIGURE OUT ANOTHER WAY
-        char name[MAX_NAME_LENGTH];
-        GetEntityClassname(weapon, name, sizeof(name));
-        if (StrEqual(name, "tf_weapon_flamethrower"))
+        SetWeaponState(entity, FT_STATE_IDLE);
+        return MRES_Ignored;
+    }
+    pEntity.Write(TF_WEAPON_PRIMARY_MODE, CTFWeaponBase_m_iWeaponMode);
+
+    SDKCall(SDKCall_CTFWeaponBase_CalcIsAttackCritical, entity);
+
+    // TODO: implement trace_t/CTraceFilterIgnoreObjects methodmaps in SMTC before working on this.
+    /*
+    // Because the muzzle is so long, it can stick through a wall if the player is right up against it.
+	// Make sure the weapon can't fire in this condition by tracing a line between the eye point and the end of the muzzle.
+	trace_t trace;	
+	Vector vecEye = pOwner->EyePosition();
+	Vector vecMuzzlePos = GetVisualMuzzlePos();
+	CTraceFilterIgnoreObjects traceFilter( this, COLLISION_GROUP_NONE );
+	UTIL_TraceLine( vecEye, vecMuzzlePos, MASK_SOLID, &traceFilter, &trace );
+	if ( trace.fraction < 1.0 && ( !trace.m_pEnt || trace.m_pEnt->m_takedamage == DAMAGE_NO ) )
+	{
+		// there is something between the eye and the end of the muzzle, most likely a wall, don't fire, and stop firing if we already are
+		if ( m_iWeaponState > FT_STATE_IDLE )
+		{
+			SetWeaponState( FT_STATE_IDLE );
+		}
+		return;
+	}
+    */
+
+    // Deal with weapon animations.
+    switch (view_as<FlameThrowerState_t>(GetEntProp(entity, Prop_Send, "m_iWeaponState")))
+    {
+        case FT_STATE_IDLE:
         {
-            if (damage < 14.00)
-                return Plugin_Stop;
-            damage = damage / 8;
-            return Plugin_Changed;
+            DoAnimationEvent(pOwner, PLAYERANIMEVENT_ATTACK_PRE);
+            SendWeaponAnim(entity, ACT_VM_PRIMARYATTACK);
+            PlayerData[pOwner].m_flStartFiringTime = GetGameTime() + 0.16;
+            SetWeaponState(entity, FT_STATE_STARTFIRING);
+        }
+        case FT_STATE_STARTFIRING:
+        {
+            if (GetGameTime() > PlayerData[pOwner].m_flStartFiringTime)
+            {
+                SetWeaponState(entity, FT_STATE_FIRING);
+                PlayerData[pOwner].m_flNextPrimaryAttackAnim = GetGameTime();
+            }
+        }
+        case FT_STATE_FIRING:
+        {
+            if (GetGameTime() >= PlayerData[pOwner].m_flNextPrimaryAttackAnim)
+            {
+                DoAnimationEvent(pOwner, PLAYERANIMEVENT_ATTACK_PRIMARY);
+                PlayerData[pOwner].m_flNextPrimaryAttackAnim = GetGameTime() + 1.40;
+            }
         }
     }
 
-    return Plugin_Continue;
+    // Check if we're not underwater, in that case, fire!
+    float flFiringInterval = 0.044; // todo: make this a convar
+    if (GetEntProp(pOwner, Prop_Send, "m_nWaterLevel") != WL_Eyes)
+    {
+        int iDmgType = DMGTYPE;
+        if (GetEntProp(entity, Prop_Send, "m_bCritFire"))
+            iDmgType |= DMG_CRIT;
+
+        // Create the flame entity.
+        float flDamage = 6.80; // todo: make this a convar
+        flDamage = TF2Attrib_HookValueFloat(flDamage, "mult_dmg", entity);
+
+        int iCritFromBehind = 0;
+        iCritFromBehind = TF2Attrib_HookValueInt(iCritFromBehind, "set_flamethrower_back_crit", entity);
+
+        CreateFlameEntity(GetFlameOriginPos(entity), EyeAngles(pOwner), entity, tf_flamethrower_velocity.FloatValue /* this may need tuning */, iDmgType, flDamage, iCritFromBehind == 1);
+    }
+
+    // Figure how much ammo we're using.
+    float flAmmoPerSecond = TF_FLAMETHROWER_AMMO_PER_SECOND_PRIMARY_ATTACK;
+    flAmmoPerSecond = TF2Attrib_HookValueFloat(flAmmoPerSecond, "mult_flame_ammopersec", entity);
+    PlayerData[pOwner].m_flAmmoUseRemainder += flAmmoPerSecond * flFiringInterval;
+    
+    int iAmmoToSubtract = RoundToFloor(PlayerData[pOwner].m_flAmmoUseRemainder); // basically (int)m_flAmmoUseRemainder.
+    if (iAmmoToSubtract > 0)
+    {
+        PlayerData[pOwner].m_iFlamethrowerAmmo -= iAmmoToSubtract;
+        PlayerData[pOwner].m_flAmmoUseRemainder -= iAmmoToSubtract;
+
+        // round to 2 digits of precision
+        PlayerData[pOwner].m_flAmmoUseRemainder = RoundToFloor(PlayerData[pOwner].m_flAmmoUseRemainder * 100) / 100.00;
+    }
+
+    // Finish this detour.
+    PlayerData[pOwner].m_flNextPrimaryAttack = GetGameTime() + flFiringInterval;
+    PlayerData[pOwner].SetAmmoCount(PlayerData[pOwner].m_iFlamethrowerAmmo, view_as<int>(TF_AMMO_PRIMARY));
+    return MRES_Ignored;
+}
+
+// CTFFlameThrower::FireAirblast();
+// Fix the next primary attack timer in this detour.
+MRESReturn FireAirBlast(int entity, DHookParam parameters)
+{
+    // Get the owner of this weapon.
+    int pOwner = GetEntPropEnt(entity, Prop_Data, "m_hOwner");
+    if (pOwner == -1)
+        return MRES_Ignored;
+
+    float fAirblastRefireTimeScale = 1.00;
+    fAirblastRefireTimeScale = TF2Attrib_HookValueFloat(fAirblastRefireTimeScale, "mult_airblast_refire_time", entity);
+    if (fAirblastRefireTimeScale <= 0.00)
+        fAirblastRefireTimeScale = 1.00;
+
+    float fAirblastPrimaryRefireTimeScale = 1.00;
+    fAirblastPrimaryRefireTimeScale = TF2Attrib_HookValueFloat(fAirblastPrimaryRefireTimeScale, "mult_airblast_primary_refire_time", entity);
+    if (fAirblastPrimaryRefireTimeScale <= 0.00)
+        fAirblastPrimaryRefireTimeScale = 1.00;
+
+    // TODO: implement this, alongside GetCarryingRuneType()
+    /*
+    // Haste Powerup Rune adds multiplier to fire delay time
+	if ( pOwner->m_Shared.GetCarryingRuneType() == RUNE_HASTE )
+	{
+		fAirblastRefireTimeScale *= 0.5f;
+	}
+    */
+
+    PlayerData[pOwner].m_flNextPrimaryAttack = GetGameTime() + (1.00 * fAirblastRefireTimeScale * fAirblastPrimaryRefireTimeScale);
+    return MRES_Ignored;
+}
+
+// CTFFlameManager::OnCollide();
+// Supercede this just to prevent damage-dealing.
+MRESReturn OnCollide(int entity, DHookParam parameters)
+{
+    return MRES_Supercede;
 }
