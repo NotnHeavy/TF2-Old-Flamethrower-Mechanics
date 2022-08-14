@@ -1,5 +1,6 @@
 ﻿dev/
 plugins/
 .vscode/
-scripting/include/smmem.inc/
-scripting/include/tf2attributes.inc/
+scripting/include/smmem.inc
+scripting/include/tf2attributes.inc
+scripting/include/forbidden_archives.inc

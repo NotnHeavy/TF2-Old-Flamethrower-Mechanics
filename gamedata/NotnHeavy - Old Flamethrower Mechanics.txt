@@ -35,6 +35,13 @@
                 "linux"   "@_ZN11CBaseEntity20CalcAbsolutePositionEv"
             }
 
+            "CTFFlameEntity::OnCollide()"
+            {
+                "library" "server"
+                "windows" "\x55\x8B\xEC\x81\xEC\xCC\x00\x00\x00\x53\x57"
+                "linux"   "@_ZN14CTFFlameEntity9OnCollideEP11CBaseEntity"
+            }
+
             "CTFFlameThrower::PrimaryAttack()"
             {
                 "library" "server"
@@ -71,6 +78,11 @@
         }
         "Offsets"
         {
+            "CBaseEntity::EyePosition()"
+            {
+                "windows" "133"
+                "linux"   "134"
+            }
             "CBaseEntity::EyeAngles()"
             {
                 "windows" "134"

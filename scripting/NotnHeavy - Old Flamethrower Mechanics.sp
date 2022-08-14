@@ -52,14 +52,15 @@
 
 #define TF_FLAMETHROWER_AMMO_PER_SECOND_PRIMARY_ATTACK		14.00
 
+// settings for m_takedamage
+#define	DAMAGE_NO				0
+#define DAMAGE_EVENTS_ONLY		1		// Call damage functions, but don't modify health
+#define	DAMAGE_YES				2
+#define	DAMAGE_AIM				3
+
 //////////////////////////////////////////////////////////////////////////////
 // GLOBALS                                                                  //
 //////////////////////////////////////////////////////////////////////////////
-
-int max(int x, int y)
-{
-    return x > y ? x : y;
-}
 
 // entity flags, CBaseEntity::m_iEFlags
 enum
@@ -226,6 +227,7 @@ static Handle SDKCall_CBaseEntity_CalcAbsoluteVelocity;
 static Handle SDKCall_CBaseEntity_SetAbsVelocity;
 static Handle SDKCall_CBaseEntity_SetAbsAngles;
 static Handle SDKCall_CBaseEntity_CalcAbsolutePosition;
+static Handle SDKCall_CBaseEntity_EyePosition;
 static Handle SDKCall_CBaseEntity_EyeAngles;
 static Handle SDKCall_CBaseCombatCharacter_Weapon_ShootPosition;
 static Handle SDKCall_CTFWeaponBase_CanAttack;
@@ -239,6 +241,13 @@ static Address CTFWeaponBase_m_iWeaponMode;
 
 static ConVar tf_flamethrower_velocity;
 static ConVar tf_flamethrower_vecrand;
+
+static ConVar notnheavy_flamethrower_damage;
+static ConVar notnheavy_flamethrower_falloff;
+
+static Pointer MemoryPatch_CTFFlameEntity_OnCollide_Falloff;
+static Pointer MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old;
+static float MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New;
 
 //////////////////////////////////////////////////////////////////////////////
 // PLUGIN INFO                                                              //
@@ -305,6 +314,11 @@ public void OnPluginStart()
     SDKCall_CBaseEntity_CalcAbsolutePosition = EndPrepSDKCall();
 
     StartPrepSDKCall(SDKCall_Entity);
+    PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseEntity::EyePosition()");
+    PrepSDKCall_SetReturnInfo(SDKType_Vector, SDKPass_ByValue); // Vector
+    SDKCall_CBaseEntity_EyePosition = EndPrepSDKCall();
+
+    StartPrepSDKCall(SDKCall_Entity);
     PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseEntity::EyeAngles()");
     PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain); // QAngle&
     SDKCall_CBaseEntity_EyeAngles = EndPrepSDKCall();
@@ -338,11 +352,22 @@ public void OnPluginStart()
     CTFFlameEntity_Base = config.GetOffset("CTFFlameEntity::m_vecInitialPos");
     CTFWeaponBase_m_iWeaponMode = view_as<Address>(config.GetOffset("CTFWeaponBase::m_iWeaponMode"));
 
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff = view_as<Pointer>(config.GetMemSig("CTFFlameEntity::OnCollide()"));
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff += 193;
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old = MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Dereference();
+
     delete config;
 
     // Load ConVars.
     tf_flamethrower_velocity = FindConVar("tf_flamethrower_velocity");
     tf_flamethrower_vecrand = FindConVar("tf_flamethrower_vecrand");
+    //tf_flamethrower_velocity.FloatValue = 3000.00; // might need checking?
+
+    // Setup convars. (These values are adjusted for before Jungle Inferno flame mechanics dropped.)
+    notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame danage number", FCVAR_PROTECTED);
+    notnheavy_flamethrower_falloff = CreateConVar("notnheavy_flamethrower_falloff", "0.70", "tf_flame falloff percentage when dealing damage");
+    notnheavy_flamethrower_falloff.AddChangeHook(AdjustFalloff);
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch();
 
     // Setup hooks for each client.
     for (int i = 1; i <= MaxClients; ++i)
@@ -355,10 +380,66 @@ public void OnPluginStart()
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// MEMORY PATCHES                                                           //
+//////////////////////////////////////////////////////////////////////////////
+
+public void OnPluginEnd()
+{
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Write(MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old);
+}
+
+static void MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch()
+{
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New = notnheavy_flamethrower_falloff.FloatValue;
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Write(AddressOf(MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New));
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// UTIL                                                                     //
+//////////////////////////////////////////////////////////////////////////////
+
+// Uses a global trace result.
+static void UTIL_TraceLine(const Vector& vecAbsStart, const Vector& vecAbsEnd, int mask, TraceEntityFilter pFilter, any data = 0)
+{
+    float startBuffer[3];
+    float endBuffer[3];
+    vecAbsStart.GetBuffer(startBuffer);
+    vecAbsEnd.GetBuffer(endBuffer);
+    TR_TraceRayFilter(startBuffer, endBuffer, mask, RayType_EndPoint, pFilter, data);
+}
+
+static bool CTraceFilterIgnoreObjects(int pServerEntity, int contentsMask, int pOwner)
+{
+    char class[MAX_NAME_LENGTH];
+    GetEntityClassname(pServerEntity, class, sizeof(class));
+    if (StrContains(class, "obj_") != -1 || pServerEntity == pOwner)
+        return false;
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// CTFPLAYERSHARED                                                          //
+//////////////////////////////////////////////////////////////////////////////
+
+static RuneTypes_t GetCarryingRuneType(int pThis)
+{
+    RuneTypes_t retVal = RUNE_NONE;
+    for (RuneTypes_t i = view_as<RuneTypes_t>(0); i < RUNE_TYPES_MAX; ++i)
+    {
+        if (TF2_IsPlayerInCondition(pThis, view_as<TFCond>(GetConditionFromRuneType(i))))
+        {
+            retVal = i;
+            break;
+        }
+    }
+    return retVal;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // CBASEENTITY                                                              //
 //////////////////////////////////////////////////////////////////////////////
 
-// Not gonna use my own methodmap here, I don't think it matters so much with this project.
+// Not gonna use my own methodmaps here, I don't think it matters so much with this project.
 static bool IsEFlagSet(int pThis, int nEFlagMask)
 {
     return (GetEntProp(pThis, Prop_Data, "m_iEFlags") & nEFlagMask) != 0;
@@ -371,18 +452,21 @@ static Vector GetAbsVelocity(int pThis)
     return view_as<Vector>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_vecAbsVelocity")); // this returns Vector& internally, so here we'll also get the reference.
 }
 
-static Vector GetAbsOrigin(int pThis)
-{
-    if (IsEFlagSet(pThis, EFL_DIRTY_ABSVELOCITY))
-        SDKCall(SDKCall_CBaseEntity_CalcAbsoluteVelocity, pThis);
-    return view_as<Vector>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_vecAbsOrigin"));
-}
-
 static QAngle GetAbsAngles(int pThis)
 {
     if (IsEFlagSet(pThis, EFL_DIRTY_ABSTRANSFORM))
         SDKCall(SDKCall_CBaseEntity_CalcAbsolutePosition, pThis);
     return view_as<QAngle>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_angAbsRotation"));
+}
+
+// This vector is stored onto the accumulator and must be assigned immediately.
+static Vector EyePosition(int pThis)
+{
+    Vector vecResult = Vector.Accumulator();
+    float buffer[3];
+    SDKCall(SDKCall_CBaseEntity_EyePosition, pThis, buffer);
+    vecResult.SetFromBuffer(buffer);
+    return vecResult;
 }
 
 static QAngle EyeAngles(int pThis)
@@ -455,6 +539,12 @@ static Vector GetMuzzlePosHelper(int pThis, bool bVisualPos, bool allocate = fal
 }
 
 // If allocated is set to false, this vector will be put onto the accumulator and must be assigned immediately. Otherwise, remember to free() when done.
+static Vector GetVisualMuzzlePos(int pThis, bool allocate = false)
+{
+    return GetMuzzlePosHelper(pThis, true, allocate);
+}
+
+// If allocated is set to false, this vector will be put onto the accumulator and must be assigned immediately. Otherwise, remember to free() when done.
 static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 {
     return GetMuzzlePosHelper(pThis, false, allocate);
@@ -462,7 +552,28 @@ static Vector GetFlameOriginPos(int pThis, bool allocate = false)
 
 static void SetWeaponState(int pThis, FlameThrowerState_t nWeaponState)
 {
-    // todo: attribute hooks
+    if (GetEntProp(pThis, Prop_Send, "m_iWeaponState") == view_as<int>(nWeaponState))
+        return;
+    int pOwner = GetEntPropEnt(pThis, Prop_Data, "m_hOwner");
+
+    switch (nWeaponState)
+    {
+        case FT_STATE_IDLE:
+        {
+            float flFiringForwardPull = 0.00;
+            flFiringForwardPull = TF2Attrib_HookValueFloat(flFiringForwardPull, "firing_forward_pull", pThis);
+            if (flFiringForwardPull)
+                TF2_RemoveCondition(pOwner, view_as<TFCond>(TF_COND_SPEED_BOOST));
+        }
+        case FT_STATE_STARTFIRING:
+        {
+            float flFiringForwardPull = 0.00;
+            flFiringForwardPull = TF2Attrib_HookValueFloat(flFiringForwardPull, "firing_forward_pull", pThis);
+            if (flFiringForwardPull)
+                TF2_AddCondition(pOwner, view_as<TFCond>(TF_COND_SPEED_BOOST));
+        }
+    }
+
     SetEntProp(pThis, Prop_Send, "m_iWeaponState", nWeaponState);
 }
 
@@ -488,6 +599,7 @@ static int CreateFlameEntity(Vector vecOrigin, QAngle vecAngles, int pOwner, flo
     else
         flamePointer.WriteEHandle(pOwner, CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER); // pFlame->m_hAttacker = pOwner;
     
+    // this is not apparent anymore?
     // pFlame->m_iAttackerTeam = pAttacker->GetTeamNumber();
     //if (flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER) != -1)
     //    flamePointer.Write(GetEntProp(flamePointer.DereferenceEHandle(CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_HATTACKER), Prop_Send, "m_iTeamNum"), CTFFlameEntity_Base + CTFFLAMEENTITY_OFFSET_M_IATTACKERTEAM);
@@ -535,14 +647,48 @@ public void OnEntityCreated(int entity, const char[] classname)
         SetupPlayerHooks(entity);
 }
 
+public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
+{
+    int flamethrower = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
+    if (flamethrower == GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") && IsValidEntity(flamethrower))
+    {
+        char class[MAX_NAME_LENGTH];
+        GetEntityClassname(flamethrower, class, sizeof(class));
+        if (StrEqual(class, "tf_weapon_flamethrower"))
+        {
+            STACK_ALLOC(vecEye, Vector, VECTOR_SIZE);
+            STACK_ALLOC(vecMuzzlePos, Vector, VECTOR_SIZE);
+            vecEye.Assign(EyePosition(client));
+            vecMuzzlePos.Assign(GetVisualMuzzlePos(flamethrower));
+            UTIL_TraceLine(vecEye, vecMuzzlePos, MASK_SOLID, CTraceFilterIgnoreObjects, client);
+
+            if (TR_GetFraction() < 1.00 && (TR_GetEntityIndex() == -1 || GetEntProp(TR_GetEntityIndex(), Prop_Data, "m_takedamage") == DAMAGE_NO))
+            {
+                if (GetEntProp(flamethrower, Prop_Send, "m_iWeaponState") > view_as<int>(FT_STATE_IDLE))
+                    SetWeaponState(flamethrower, FT_STATE_IDLE);
+                buttons &= ~IN_ATTACK;
+                return Plugin_Changed;
+            }
+        }
+    }
+
+    return Plugin_Continue;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // HOOKS                                                                    //
 //////////////////////////////////////////////////////////////////////////////
 
+public void AdjustFalloff(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch();
+    PrintToServer("Flamethrower falloff with tf_flame has been changed to %f.", view_as<Pointer>(MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Dereference()).Dereference());
+}
+
 static void SetupPlayerHooks(int entity)
 {
     PlayerData[entity].index = entity; // dumb shortcut but whatever
-    PlayerData[client].m_flNextPrimaryAttack = 0.00;
+    PlayerData[entity].m_flNextPrimaryAttack = 0.00;
 }
 
 public Action PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
@@ -601,10 +747,9 @@ MRESReturn Post_PrimaryAttack(int entity)
 
     SDKCall(SDKCall_CTFWeaponBase_CalcIsAttackCritical, entity);
 
-    // TODO: implement trace_t/CTraceFilterIgnoreObjects methodmaps in SMTC before working on this.
-    /*
     // Because the muzzle is so long, it can stick through a wall if the player is right up against it.
 	// Make sure the weapon can't fire in this condition by tracing a line between the eye point and the end of the muzzle.
+    /*
 	trace_t trace;	
 	Vector vecEye = pOwner->EyePosition();
 	Vector vecMuzzlePos = GetVisualMuzzlePos();
@@ -620,6 +765,7 @@ MRESReturn Post_PrimaryAttack(int entity)
 		return;
 	}
     */
+    // See OnPlayerRunCmd().
 
     // Deal with weapon animations.
     switch (view_as<FlameThrowerState_t>(GetEntProp(entity, Prop_Send, "m_iWeaponState")))
@@ -650,7 +796,7 @@ MRESReturn Post_PrimaryAttack(int entity)
     }
 
     // Check if we're not underwater, in that case, fire!
-    float flFiringInterval = 0.044; // todo: make this a convar
+    float flFiringInterval = 0.044;
     if (GetEntProp(pOwner, Prop_Send, "m_nWaterLevel") != WL_Eyes)
     {
         int iDmgType = DMGTYPE;
@@ -658,13 +804,13 @@ MRESReturn Post_PrimaryAttack(int entity)
             iDmgType |= DMG_CRIT;
 
         // Create the flame entity.
-        float flDamage = 6.80; // todo: make this a convar
+        float flDamage = notnheavy_flamethrower_damage.FloatValue; // 6.80 by default
         flDamage = TF2Attrib_HookValueFloat(flDamage, "mult_dmg", entity);
 
         int iCritFromBehind = 0;
         iCritFromBehind = TF2Attrib_HookValueInt(iCritFromBehind, "set_flamethrower_back_crit", entity);
 
-        CreateFlameEntity(GetFlameOriginPos(entity), EyeAngles(pOwner), entity, tf_flamethrower_velocity.FloatValue /* this may need tuning */, iDmgType, flDamage, iCritFromBehind == 1);
+        CreateFlameEntity(GetFlameOriginPos(entity), EyeAngles(pOwner), entity, tf_flamethrower_velocity.FloatValue, iDmgType, flDamage, iCritFromBehind == 1);
     }
 
     // Figure how much ammo we're using.
@@ -707,14 +853,9 @@ MRESReturn FireAirBlast(int entity, DHookParam parameters)
     if (fAirblastPrimaryRefireTimeScale <= 0.00)
         fAirblastPrimaryRefireTimeScale = 1.00;
 
-    // TODO: implement this, alongside GetCarryingRuneType()
-    /*
     // Haste Powerup Rune adds multiplier to fire delay time
-	if ( pOwner->m_Shared.GetCarryingRuneType() == RUNE_HASTE )
-	{
-		fAirblastRefireTimeScale *= 0.5f;
-	}
-    */
+    if (GetCarryingRuneType(pOwner) == RUNE_HASTE)
+        fAirblastRefireTimeScale *= 0.50;
 
     PlayerData[pOwner].m_flNextPrimaryAttack = GetGameTime() + (1.00 * fAirblastRefireTimeScale * fAirblastPrimaryRefireTimeScale);
     return MRES_Ignored;
@@ -725,4 +866,100 @@ MRESReturn FireAirBlast(int entity, DHookParam parameters)
 MRESReturn OnCollide(int entity, DHookParam parameters)
 {
     return MRES_Supercede;
+}
+
+//#include "forbidden_archives"
+static int LaserBeamIndex = 0;
+
+public void OnMapStart()
+{
+    LaserBeamIndex = PrecacheModel("sprites/laser.vmt");
+}
+
+static Vector GetAbsOrigin(int pThis)
+{
+    if (IsEFlagSet(pThis, EFL_DIRTY_ABSTRANSFORM))
+        SDKCall(SDKCall_CBaseEntity_CalcAbsolutePosition, pThis);
+    return view_as<Vector>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_vecAbsOrigin"));
+}
+
+stock void TE_SendBeamBoxToAll(const float uppercorner[3], const float bottomcorner[3], int ModelIndex, int HaloIndex, int StartFrame, int FrameRate, float Life, float Width, float EndWidth, int FadeLength, float Amplitude, const int Color[4], int Speed) {
+    // Create the additional corners of the box
+    float tc1[3];
+    AddVectors(tc1, uppercorner, tc1);
+    tc1[0] = bottomcorner[0];
+
+    float tc2[3];
+    AddVectors(tc2, uppercorner, tc2);
+    tc2[1] = bottomcorner[1];
+
+    float tc3[3];
+    AddVectors(tc3, uppercorner, tc3);
+    tc3[2] = bottomcorner[2];
+
+    float tc4[3];
+    AddVectors(tc4, bottomcorner, tc4);
+    tc4[0] = uppercorner[0];
+
+    float tc5[3];
+    AddVectors(tc5, bottomcorner, tc5);
+    tc5[1] = uppercorner[1];
+
+    float tc6[3];
+    AddVectors(tc6, bottomcorner, tc6);
+    tc6[2] = uppercorner[2];
+
+    // Draw all the edges
+    TE_SetupBeamPoints(uppercorner, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(uppercorner, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(uppercorner, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc6, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc6, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc6, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc4, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc5, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc5, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc5, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc4, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+    TE_SetupBeamPoints(tc4, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
+    TE_SendToAll();
+}
+
+public void OnGameFrame()
+{
+    static int frame = 0;
+    ++frame;
+    for (int entity = MAXPLAYERS + 1; entity < 2048; ++entity)
+    {
+        if (IsValidEntity(entity))
+        {
+            char class[128];
+            GetEntityClassname(entity, class, sizeof(class));
+            if (StrEqual(class, "tf_flame") && frame % 4 == 0)
+            {
+                float mins[3];
+                float maxs[3];
+                float origin[3];
+                Vector originVector = GetAbsOrigin(entity);
+                originVector.GetBuffer(origin);
+                GetAbsVelocity(entity);
+                GetEntPropVector(entity, Prop_Send, "m_vecMins", mins);
+                GetEntPropVector(entity, Prop_Send, "m_vecMaxs", maxs);
+                AddVectors(mins, origin, mins);
+                AddVectors(maxs, origin, maxs);
+                TE_SendBeamBoxToAll(mins, maxs, LaserBeamIndex, 0, 0, 1, 0.06, 1.00, 1.00, 0, 0.00, {255, 255, 255, 255}, 10);
+            }
+        }
+    }
 }
