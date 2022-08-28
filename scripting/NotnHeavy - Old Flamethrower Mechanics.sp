@@ -717,7 +717,6 @@ public void OnGameFrame()
             TF2_RemoveCondition(client, TFCond_OnFire);
         }
     }
-    OnGameFrame_2();
 }
 
 //////////////////////////////////////////////////////////////////////////////
