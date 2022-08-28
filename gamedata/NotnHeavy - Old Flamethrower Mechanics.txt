@@ -75,9 +75,22 @@
                 "windows" "\x55\x8B\xEC\x51\x53\x56\x8B\x35\x2A\x2A\x2A\x2A\x8B\xD9\x8B\xCE"
                 "linux"   "@_ZN9CTFPlayer16DoAnimationEventE17PlayerAnimEvent_ti"
             }
+
+            "CTFPlayerShared::Burn()"
+			{
+				"library" "server"
+				"windows" "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\xF1\x8B\x8E\x90\x01\x00\x00\x8B\x01"
+				"linux"	  "@_ZN15CTFPlayerShared4BurnEP9CTFPlayerP13CTFWeaponBasef"
+			}
         }
         "Offsets"
         {
+            "MemoryPatch_CTFFlameEntity_OnCollide_Falloff"
+            {
+                "windows" "193"
+                "linux"   "425"
+            }
+
             "CBaseEntity::EyePosition()"
             {
                 "windows" "133"
@@ -115,6 +128,17 @@
 			{
 				"windows" "1700"
 				"linux"   "1704"
+			}
+
+            "CTFPlayerShared::m_pOuter"
+			{
+				"windows" "400"
+				"linux"	  "400"
+			}
+			"CTFPlayerShared::m_flBurnDuration"
+			{
+				"windows" "520"
+				"linux"   "520"
 			}
         }
         "Functions"
@@ -159,6 +183,29 @@
                     }
                 }
             }
+
+            "CTFPlayerShared::Burn()"
+			{
+				"signature" "CTFPlayerShared::Burn()"
+                "callconv"  "thiscall"
+				"this"      "address"
+				"return"    "void"
+                "arguments"
+                {
+                    "pAttacker"
+                    {
+                        "type" "cbaseentity"
+                    }
+                    "pWeapon"
+                    {
+                        "type" "cbaseentity"
+                    }
+                    "flBurningTime"
+                    {
+                        "type" "float"
+                    }
+                }
+			}
         }
     }
 }
