@@ -1,4 +1,4 @@
-# TF2-Old-Flamethrower-Mechanics
+# NotnHeavy's Old Flamethrower Mechanics
 
 Making use of `CTFFlameEntity`, which is still present in the game files, this plugin reintroduces pre-Jungle Inferno flames. I may look into other things as well with this plugin in the future.
 
@@ -20,3 +20,5 @@ Download the latest release from the release tabs, and just drag the addons fold
 - notnheavy_flamethrower_oldafterburn_damage (0 by default): enable old afterburn damage (3 per tick instead of 4).
 - notnheavy_flamethrower_oldafterburn_duration (0 by default): enable old afterburn duration (full 10s, 6s with Cow Mangler, 0.25s if Pyro or afterburn immune).
 - notnheavy_flamethrower_falloff (0.70 by default): falloff multiplier at `tf_flamethrower_maxdamagedist` distance.
+
+AlliedModders post: https://forums.alliedmods.net/showthread.php?p=2787580
