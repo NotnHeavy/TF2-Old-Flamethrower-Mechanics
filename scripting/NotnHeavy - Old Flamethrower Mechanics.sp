@@ -717,7 +717,6 @@ public void OnGameFrame()
             TF2_RemoveCondition(client, TFCond_OnFire);
         }
     }
-    OnGameFrame_2();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -992,99 +991,4 @@ MRESReturn Burn(Address aThis, DHookParam parameters)
     }
 
     return MRES_Ignored;
-}
-
-static int LaserBeamIndex = 0;
-
-public void OnMapStart()
-{
-    LaserBeamIndex = PrecacheModel("sprites/laser.vmt");
-}
-
-static Vector GetAbsOrigin(int pThis)
-{
-    if (IsEFlagSet(pThis, EFL_DIRTY_ABSTRANSFORM))
-        SDKCall(SDKCall_CBaseEntity_CalcAbsolutePosition, pThis);
-    return view_as<Vector>(GetEntityAddress(pThis) + FindDataMapInfo(pThis, "m_vecAbsOrigin"));
-}
-
-stock void TE_SendBeamBoxToAll(const float uppercorner[3], const float bottomcorner[3], int ModelIndex, int HaloIndex, int StartFrame, int FrameRate, float Life, float Width, float EndWidth, int FadeLength, float Amplitude, const int Color[4], int Speed) {
-    // Create the additional corners of the box
-    float tc1[3];
-    AddVectors(tc1, uppercorner, tc1);
-    tc1[0] = bottomcorner[0];
-
-    float tc2[3];
-    AddVectors(tc2, uppercorner, tc2);
-    tc2[1] = bottomcorner[1];
-
-    float tc3[3];
-    AddVectors(tc3, uppercorner, tc3);
-    tc3[2] = bottomcorner[2];
-
-    float tc4[3];
-    AddVectors(tc4, bottomcorner, tc4);
-    tc4[0] = uppercorner[0];
-
-    float tc5[3];
-    AddVectors(tc5, bottomcorner, tc5);
-    tc5[1] = uppercorner[1];
-
-    float tc6[3];
-    AddVectors(tc6, bottomcorner, tc6);
-    tc6[2] = uppercorner[2];
-
-    // Draw all the edges
-    TE_SetupBeamPoints(uppercorner, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(uppercorner, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(uppercorner, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc6, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc6, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc6, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc4, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc5, bottomcorner, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc5, tc1, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc5, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc4, tc3, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-    TE_SetupBeamPoints(tc4, tc2, ModelIndex, HaloIndex, StartFrame, FrameRate, Life, Width, EndWidth, FadeLength, Amplitude, Color, Speed);
-    TE_SendToAll();
-}
-
-public void OnGameFrame_2()
-{
-    static int frame = 0;
-    ++frame;
-    for (int entity = MAXPLAYERS + 1; entity < 2048; ++entity)
-    {
-        if (IsValidEntity(entity))
-        {
-            char class[128];
-            GetEntityClassname(entity, class, sizeof(class));
-            if (StrEqual(class, "tf_flame") && frame % 4 == 0)
-            {
-                float mins[3];
-                float maxs[3];
-                float origin[3];
-                Vector originVector = GetAbsOrigin(entity);
-                originVector.GetBuffer(origin);
-                GetAbsVelocity(entity);
-                GetEntPropVector(entity, Prop_Send, "m_vecMins", mins);
-                GetEntPropVector(entity, Prop_Send, "m_vecMaxs", maxs);
-                AddVectors(mins, origin, mins);
-                AddVectors(maxs, origin, maxs);
-                TE_SendBeamBoxToAll(mins, maxs, LaserBeamIndex, 0, 0, 1, 0.06, 1.00, 1.00, 0, 0.00, {255, 255, 255, 255}, 10);
-            }
-        }
-    }
 }
