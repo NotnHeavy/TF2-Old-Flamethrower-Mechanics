@@ -93,52 +93,52 @@
 
             "CBaseEntity::EyePosition()"
             {
-                "windows" "133"
-                "linux"   "134"
+                "windows" "136"
+                "linux"   "137"
             }
             "CBaseEntity::EyeAngles()"
             {
-                "windows" "134"
-                "linux"   "135"
+                "windows" "137"
+                "linux"   "138"
             }
 
             "CBaseCombatCharacter::Weapon_ShootPosition()"
             {
-                "windows" "272"
-                "linux"   "273"
+                "windows" "275"
+                "linux"   "276"
             }
 
-            "CTFFlameEntity::m_vecInitialPos"
+            "CTFFlameEntity::m_vecInitialPos" // after "CBaseEntity::CalcAbsolutePosition(this);" in pseudocode for CTFFlameEntity::OnCollide(), use offsets of vector used as rightmost value for subtraction
             {
-                "windows" "860"
-                "linux"   "880"
+                "windows" "904"
+                "linux"   "928"
             }
 
             "CTFWeaponBase::CanAttack()"
             {
-                "windows" "421"
-                "linux"   "428"
+                "windows" "425"
+                "linux"   "432"
             }
             "CTFWeaponBase::SendWeaponAnim()"
             {
-                "windows" "246"
-                "linux"   "252"
+                "windows" "249"
+                "linux"   "255"
             }
-            "CTFWeaponBase::m_iWeaponMode"
+            "CTFWeaponBase::m_iWeaponMode" // first statement in pseudocode for CTFWeaponBase::PrimaryAttack()
 			{
-				"windows" "1700"
-				"linux"   "1704"
+				"windows" "1728"
+				"linux"   "1752"
 			}
 
-            "CTFPlayerShared::m_pOuter"
+            "CTFPlayerShared::m_pOuter" // CTFPlayerShared::Init()
 			{
-				"windows" "400"
-				"linux"	  "400"
+				"windows" "396"
+				"linux"	  "396"
 			}
-			"CTFPlayerShared::m_flBurnDuration"
+			"CTFPlayerShared::m_flBurnDuration" // xref to mult_wpn_burntime
 			{
-				"windows" "520"
-				"linux"   "520"
+				"windows" "516"
+				"linux"   "516"
 			}
         }
         "Functions"
