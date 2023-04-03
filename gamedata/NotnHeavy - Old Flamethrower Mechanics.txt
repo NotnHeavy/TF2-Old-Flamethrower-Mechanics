@@ -7,7 +7,7 @@
             "CBaseEntity::Create()"
             {
                 "library" "server"
-                "windows" "\x55\x8B\xEC\x56\x6A\xFF\xFF\x75\x08\xE8\x2A\x2A\x2A\x2A\x8B\xF0\x83\xC4\x08\x85\xF6\x75\x2A\x56"
+                "windows" "\x55\x8B\xEC\x56\x6A\xFF\xFF\x75\x08\xE8\x2A\x2A\x2A\x2A\x8B\xF0\x83\xC4\x08\x85\xF6\x75\x2A\x6A\x01" // offset aPlayerManager ; "player_manager", go to call below it
                 "linux"   "@_ZN11CBaseEntity6CreateEPKcRK6VectorRK6QAnglePS_"
             }
             "CBaseEntity::CalcAbsoluteVelocity()"
@@ -19,7 +19,7 @@
             "CBaseEntity::SetAbsVelocity()"
             {
                 "library" "server"
-                "windows" "\x56\x8B\xF1\x8B\x8E\x14\x01\x00\x00"
+                "windows" "\x57\x8B\xF9\x8B\x8F\x3C\x01\x00\x00" //  offset aGotANanVelocit ; "Got a NaN velocity on %s\n", call above
                 "linux"   "@_ZN11CBaseEntity14SetAbsVelocityERK6Vector"
             }
             "CBaseEntity::SetAbsAngles()"
@@ -58,7 +58,7 @@
             "CTFFlameManager::OnCollide()"
             {
                 "library" "server"
-                "windows" "\x55\x8B\xEC\x81\xEC\x10\x01\x00\x00\xA1\x2A\x2A\x2A\x2A\x53"
+                "windows" "\x55\x8B\xEC\x81\xEC\x10\x01\x00\x00\xA1\x2A\x2A\x2A\x2A\x33\xD2" // look up "CTFFlameManager::OnCollide" in strings, xref to string
                 "linux"   "@_ZN15CTFFlameManager9OnCollideEP11CBaseEntityi"
             }
 
@@ -79,7 +79,7 @@
             "CTFPlayerShared::Burn()"
 			{
 				"library" "server"
-				"windows" "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\xF1\x8B\x8E\x90\x01\x00\x00\x8B\x01"
+				"windows" "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\xF1\x8B\x8E\x8C\x01\x00\x00\x8B\x01" // offset aMultWpnBurntim ; "mult_wpn_burntime"
 				"linux"	  "@_ZN15CTFPlayerShared4BurnEP9CTFPlayerP13CTFWeaponBasef"
 			}
         }
