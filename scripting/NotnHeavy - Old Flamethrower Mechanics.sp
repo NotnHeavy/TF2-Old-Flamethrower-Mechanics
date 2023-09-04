@@ -267,7 +267,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "An attempt to revert flamethrower mechanics to how they were, pre-Jungle Inferno.",
-    version = "1.0",
+    version = "1.0.1",
     url = "none"
 };
 
@@ -292,7 +292,7 @@ public void OnPluginStart()
     DHooks_CTFFlameThrower_FireAirBlast = DHookCreateFromConf(config, "CTFFlameThrower::FireAirBlast()");
     DHookEnableDetour(DHooks_CTFFlameThrower_FireAirBlast, true, FireAirBlast);
 
-    DHooks_CTFFlameManager_OnCollide = DHookCreateFromConf(config, "CTFFlameManager::OnCollide()");
+    DHooks_CTFFlameManager_OnCollide = DHookCreateFromConf(config, "Signature::CTFFlameManager::OnCollide()");
     DHookEnableDetour(DHooks_CTFFlameManager_OnCollide, false, OnCollide);
 
     DHooks_CTFPlayerShared_Burn = DHookCreateFromConf(config, "CTFPlayerShared::Burn()");

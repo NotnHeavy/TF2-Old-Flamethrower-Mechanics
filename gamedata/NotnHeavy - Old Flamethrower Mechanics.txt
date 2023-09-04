@@ -55,10 +55,11 @@
                 "linux"   "@_ZN15CTFFlameThrower12FireAirBlastEi"
             }
 
-            "CTFFlameManager::OnCollide()"
+            // look up "CTFFlameManager::OnCollide" in strings, xref to string
+            "Signature::CTFFlameManager::OnCollide()"
             {
                 "library" "server"
-                "windows" "\x55\x8B\xEC\x81\xEC\x10\x01\x00\x00\xA1\x2A\x2A\x2A\x2A\x33\xD2" // look up "CTFFlameManager::OnCollide" in strings, xref to string
+                "windows" "\x55\x8B\xEC\x81\xEC\x10\x01\x00\x00\xA1\x2A\x2A\x2A\x2A\x33\xD2"
                 "linux"   "@_ZN15CTFFlameManager9OnCollideEP11CBaseEntityi"
             }
 
@@ -165,25 +166,6 @@
                 }
             }
 
-            "CTFFlameManager::OnCollide()"
-            {
-                "signature" "CTFFlameManager::OnCollide()"
-                "callconv"  "thiscall"
-				"this"      "entity"
-                "return"    "void"
-                "arguments"
-                {
-                    "pCollidedWith"
-                    {
-                        "type" "cbaseentity"
-                    }
-                    "iScale"
-                    {
-                        "type" "int"
-                    }
-                }
-            }
-
             "CTFPlayerShared::Burn()"
 			{
 				"signature" "CTFPlayerShared::Burn()"
@@ -206,6 +188,25 @@
                     }
                 }
 			}
+
+            "Signature::CTFFlameManager::OnCollide()"
+            {
+                "signature" "Signature::CTFFlameManager::OnCollide()"
+                "callconv"  "thiscall"
+				"this"      "entity"
+                "return"    "void"
+                "arguments"
+                {
+                    "pCollidedWith"
+                    {
+                        "type" "cbaseentity"
+                    }
+                    "iScale"
+                    {
+                        "type" "int"
+                    }
+                }
+            }
         }
     }
 }
