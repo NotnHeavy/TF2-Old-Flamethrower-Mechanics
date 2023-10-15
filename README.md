@@ -12,6 +12,7 @@ Download the latest release from the release tabs, and just drag the addons fold
 
 - nosoop's fork of TF2Attributes
 - Scags' SM-Memory extension.
+- NotnHeavy's SourceMod Type Collection gamedata.
 
 ## ConVars
 
