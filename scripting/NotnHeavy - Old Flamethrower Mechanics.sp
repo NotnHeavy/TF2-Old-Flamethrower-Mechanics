@@ -2,12 +2,15 @@
 // MADE BY NOTNHEAVY. USES GPL-3, AS PER REQUEST OF SOURCEMOD               //
 //////////////////////////////////////////////////////////////////////////////
 
+// Old afterburn code is due for a re-write.
+
 // For dynamic memory allocation, this uses Scags' SM-Memory extension.
 // https://forums.alliedmods.net/showthread.php?t=327729#
 
 // For TF2 attributes, this uses nosoop's tf2attributes plugin, which is a fork of FlaminSarge's.
 
-// For stdlib functions, this uses Scags' SM-Memory.
+// This plugin also uses SMTC.
+// https://github.com/NotnHeavy/SourceMod-Type-Collection
 
 #pragma semicolon true 
 #pragma newdecls required
@@ -239,15 +242,16 @@ static Handle SDKCall_CTFWeaponBase_CalcIsAttackCritical;
 static Handle SDKCall_CTFWeaponBase_SendWeaponAnim;
 static Handle SDKCall_CTFPlayer_DoAnimationEvent;
 
-static int CTFFlameEntity_Base;
+static any CTFFlameEntity_Base;
 
-static Address CTFWeaponBase_m_iWeaponMode;
-static Address CTFPlayerShared_m_pOuter;
-static Address CTFPlayerShared_m_flBurnDuration;
+static any CTFWeaponBase_m_iWeaponMode;
+static any CTFPlayerShared_m_pOuter;
+static any CTFPlayerShared_m_flBurnDuration;
 
 static ConVar tf_flamethrower_velocity;
 static ConVar tf_flamethrower_vecrand;
 
+static ConVar notnheavy_jungleinferno_particlecannon; // Only works if notnheavy_flamethrower_enable is not set. Used for Meet the Team Fortress.
 static ConVar notnheavy_flamethrower_enable;
 static ConVar notnheavy_flamethrower_damage;
 static ConVar notnheavy_flamethrower_oldafterburn_damage;
@@ -362,9 +366,9 @@ public void OnPluginStart()
     SDKCall_CTFPlayer_DoAnimationEvent = EndPrepSDKCall();
 
     CTFFlameEntity_Base = config.GetOffset("CTFFlameEntity::m_vecInitialPos");
-    CTFWeaponBase_m_iWeaponMode = view_as<Address>(config.GetOffset("CTFWeaponBase::m_iWeaponMode"));
-    CTFPlayerShared_m_pOuter = view_as<Address>(config.GetOffset("CTFPlayerShared::m_pOuter"));
-    CTFPlayerShared_m_flBurnDuration = view_as<Address>(config.GetOffset("CTFPlayerShared::m_flBurnDuration"));
+    CTFWeaponBase_m_iWeaponMode = FindSendPropInfo("CTFWeaponBase", "m_flEffectBarRegenTime") - 8; // view_as<Address>(config.GetOffset("CTFWeaponBase::m_iWeaponMode"));
+    CTFPlayerShared_m_pOuter = FindSendPropInfo("CTFPlayer", "m_nNumHealers") + 8 - FindSendPropInfo("CTFPlayer", "m_Shared"); // view_as<Address>(config.GetOffset("CTFPlayerShared::m_pOuter"));
+    CTFPlayerShared_m_flBurnDuration = FindSendPropInfo("CTFPlayer", "m_bFeignDeathReady") - 100 - FindSendPropInfo("CTFPlayer", "m_Shared"); // view_as<Address>(config.GetOffset("CTFPlayerShared::m_flBurnDuration"));
 
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff = view_as<Pointer>(config.GetMemSig("CTFFlameEntity::OnCollide()") + config.GetOffset("MemoryPatch_CTFFlameEntity_OnCollide_Falloff"));
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old = MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Dereference();
@@ -376,6 +380,7 @@ public void OnPluginStart()
     tf_flamethrower_vecrand = FindConVar("tf_flamethrower_vecrand");
 
     // Setup convars. (These values are adjusted for before Jungle Inferno flame mechanics dropped.)
+    notnheavy_jungleinferno_particlecannon = CreateConVar("notnheavy_jungleinferno_particlecannon", "0", "used for meet the team fortress", FCVAR_CHEAT);
     notnheavy_flamethrower_enable = CreateConVar("notnheavy_flamethrower_enable", "1", "use old flamethrower mechanics?", FCVAR_CHEAT);
     notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame danage number", FCVAR_CHEAT);
     notnheavy_flamethrower_oldafterburn_damage = CreateConVar("notnheavy_flamethrower_oldafterburn_damage", "0", "use old afterburn damage (3 per tick)", FCVAR_CHEAT);
@@ -407,6 +412,15 @@ static void MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch()
 {
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New = notnheavy_flamethrower_falloff.FloatValue;
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff.Write(AddressOf(MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New));
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// MATHLIB                                                                  //
+//////////////////////////////////////////////////////////////////////////////
+
+float min(float x, float y)
+{
+    return (x < y) ? x : y;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -936,34 +950,40 @@ MRESReturn OnCollide(int entity, DHookParam parameters)
 // post-call CTFPlayerShared::Burn();
 // Adjust afterburn duration, if notnheavy_flamethrower_oldafterburn_duration is on.
 MRESReturn Burn(Address aThis, DHookParam parameters)
-{
-    if (notnheavy_flamethrower_enable.BoolValue && notnheavy_flamethrower_oldafterburn_duration.BoolValue)
+{   
+    bool preJI = notnheavy_flamethrower_enable.BoolValue && notnheavy_flamethrower_oldafterburn_duration.BoolValue;
+    bool JIparticlecannon = notnheavy_jungleinferno_particlecannon.BoolValue;
+    if (!preJI && !JIparticlecannon)
+        return MRES_Ignored;
+
+    Pointer pThis = view_as<Pointer>(aThis);
+    int m_pOuter = view_as<Pointer>(pThis.Dereference(CTFPlayerShared_m_pOuter)).DereferenceEntity();
+    int pWeapon = parameters.Get(2);
+    float flBurningTime = parameters.Get(3);
+    if (!IsPlayerAlive(m_pOuter) || TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_PHASE)) || TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_PASSTIME_INTERCEPTION)))
+        return MRES_Ignored;
+
+    bool bVictimIsPyro = TF2_GetPlayerClass(m_pOuter) == TFClass_Pyro;
+
+    int nAfterburnImmunity = 0;
+
+    int pMyWeapon = GetEntPropEnt(m_pOuter, Prop_Send, "m_hActiveWeapon");
+    if (IsValidEntity(pMyWeapon))
+        nAfterburnImmunity = TF2Attrib_HookValueInt(nAfterburnImmunity, "afterburn_immunity", pMyWeapon);
+
+    if (TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_AFTERBURN_IMMUNE)))
     {
-        Pointer pThis = view_as<Pointer>(aThis);
-        int m_pOuter = view_as<Pointer>(pThis.Dereference(CTFPlayerShared_m_pOuter)).DereferenceEntity();
-        int pWeapon = parameters.Get(2);
-        float flBurningTime = parameters.Get(3);
-        if (!IsPlayerAlive(m_pOuter) || TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_PHASE)) || TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_PASSTIME_INTERCEPTION)))
-            return MRES_Ignored;
+        nAfterburnImmunity = 1;
+        pThis.Write(0, CTFPlayerShared_m_flBurnDuration);
+    }
 
-        bool bVictimIsPyro = TF2_GetPlayerClass(m_pOuter) == TFClass_Pyro;
+    int shield = GetEquippedDemoShield(m_pOuter);
+    if (!nAfterburnImmunity && IsValidEntity(shield) && !GetEntProp(shield, Prop_Send, "m_bDisguiseWearable"))
+        nAfterburnImmunity = TF2Attrib_HookValueInt(nAfterburnImmunity, "afterburn_immunity", shield);
 
-        int nAfterburnImmunity = 0;
-
-        int pMyWeapon = GetEntPropEnt(m_pOuter, Prop_Send, "m_hActiveWeapon");
-        if (IsValidEntity(pMyWeapon))
-            nAfterburnImmunity = TF2Attrib_HookValueInt(nAfterburnImmunity, "afterburn_immunity", pMyWeapon);
-
-        if (TF2_IsPlayerInCondition(m_pOuter, view_as<TFCond>(TF_COND_AFTERBURN_IMMUNE)))
-        {
-            nAfterburnImmunity = 1;
-            pThis.Write(0, CTFPlayerShared_m_flBurnDuration);
-        }
-
-        int shield = GetEquippedDemoShield(m_pOuter);
-        if (IsValidEntity(shield) && !GetEntProp(shield, Prop_Send, "m_bDisguiseWearable"))
-            nAfterburnImmunity = TF2Attrib_HookValueInt(nAfterburnImmunity, "afterburn_immunity", shield);
-
+    // pre-JI
+    if (preJI)
+    {
         float flFlameLife;
         if (bVictimIsPyro || nAfterburnImmunity)
         {
@@ -975,10 +995,10 @@ MRESReturn Burn(Address aThis, DHookParam parameters)
         else
         {
             float length = TF_BURNING_FLAME_LIFE;
-            if (IsValidEntity(pMyWeapon))
+            if (IsValidEntity(pWeapon))
             {
                 char class[MAX_NAME_LENGTH];
-                GetEntityClassname(pMyWeapon, class, sizeof(class));
+                GetEntityClassname(pWeapon, class, sizeof(class));
                 if (StrEqual(class, "tf_weapon_particle_cannon"))
                     length = TF_BURNING_FLAME_LIFE_PLASMA;
             }
@@ -988,6 +1008,22 @@ MRESReturn Burn(Address aThis, DHookParam parameters)
 
         if (flFlameLife > pThis.Dereference(CTFPlayerShared_m_flBurnDuration))
             pThis.Write(flFlameLife, CTFPlayerShared_m_flBurnDuration);
+    }
+
+    // JI particle cannon
+    else if (JIparticlecannon)
+    {
+        float flFlameLife;
+        if (IsValidEntity(pWeapon) && flBurningTime < 0.00)
+        {
+            char class[MAX_NAME_LENGTH];
+            GetEntityClassname(pWeapon, class, sizeof(class));
+            if (StrEqual(class, "tf_weapon_particle_cannon"))
+            {
+                flFlameLife = TF2Attrib_HookValueFloat(10.00, "mult_wpn_burntime", pWeapon);
+                pThis.Write(min(view_as<float>(pThis.Dereference(CTFPlayerShared_m_flBurnDuration)) + flFlameLife, 10.00), CTFPlayerShared_m_flBurnDuration);
+            }
+        }
     }
 
     return MRES_Ignored;
