@@ -271,7 +271,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "An attempt to revert flamethrower mechanics to how they were, pre-Jungle Inferno.",
-    version = "1.0.1",
+    version = "1.02",
     url = "none"
 };
 
@@ -382,7 +382,7 @@ public void OnPluginStart()
     // Setup convars. (These values are adjusted for before Jungle Inferno flame mechanics dropped.)
     notnheavy_jungleinferno_particlecannon = CreateConVar("notnheavy_jungleinferno_particlecannon", "0", "used for meet the team fortress", FCVAR_CHEAT);
     notnheavy_flamethrower_enable = CreateConVar("notnheavy_flamethrower_enable", "1", "use old flamethrower mechanics?", FCVAR_CHEAT);
-    notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame danage number", FCVAR_CHEAT);
+    notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame damage number", FCVAR_CHEAT);
     notnheavy_flamethrower_oldafterburn_damage = CreateConVar("notnheavy_flamethrower_oldafterburn_damage", "0", "use old afterburn damage (3 per tick)", FCVAR_CHEAT);
     notnheavy_flamethrower_oldafterburn_duration = CreateConVar("notnheavy_flamethrower_oldafterburn_duration", "0", "use old afterburn duration (constant 10s, 6s with cow mangler)", FCVAR_CHEAT);
     notnheavy_flamethrower_falloff = CreateConVar("notnheavy_flamethrower_falloff", "0.70", "tf_flame falloff percentage when dealing damage", FCVAR_CHEAT);
