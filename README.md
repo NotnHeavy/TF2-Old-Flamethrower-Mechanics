@@ -16,10 +16,10 @@ Download the latest release from the release tabs, and just drag the addons fold
 
 ## ConVars
 
-- notnheavy_flamethrower_enable (1 by default): enable this plugin.
-- notnheavy_flamethrower_damage (6.80 by default): default flame damage.
+- notnheavy_flamethrower_enable_flames (1 by default): enable old flames.
 - notnheavy_flamethrower_oldafterburn_damage (0 by default): enable old afterburn damage (3 per tick instead of 4).
 - notnheavy_flamethrower_oldafterburn_duration (0 by default): enable old afterburn duration (full 10s, 6s with Cow Mangler, 0.25s if Pyro or afterburn immune).
+- notnheavy_flamethrower_damage (6.80 by default): default flame damage.
 - notnheavy_flamethrower_falloff (0.70 by default): falloff multiplier at `tf_flamethrower_maxdamagedist` distance.
 
 AlliedModders post: https://forums.alliedmods.net/showthread.php?p=2787580

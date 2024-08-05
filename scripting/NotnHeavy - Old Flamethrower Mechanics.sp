@@ -241,11 +241,11 @@ static any CTFPlayerShared_m_flBurnDuration;
 static ConVar tf_flamethrower_velocity;
 static ConVar tf_flamethrower_vecrand;
 
+static ConVar notnheavy_flamethrower_enable_flames;
 static ConVar notnheavy_jungleinferno_particlecannon; // Only works if notnheavy_flamethrower_enable is not set. Used for Meet the Team Fortress.
-static ConVar notnheavy_flamethrower_enable;
 static ConVar notnheavy_flamethrower_damage;
-static ConVar notnheavy_flamethrower_oldafterburn_damage;
 static ConVar notnheavy_flamethrower_oldafterburn_duration;
+static ConVar notnheavy_flamethrower_oldafterburn_damage;
 static ConVar notnheavy_flamethrower_falloff;
 
 static any MemoryPatch_CTFFlameEntity_OnCollide_Falloff;
@@ -261,7 +261,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "An attempt to revert flamethrower mechanics to how they were, pre-Jungle Inferno.",
-    version = "1.0.3",
+    version = "1.0.4",
     url = "none"
 };
 
@@ -299,12 +299,6 @@ public void OnPluginStart()
     PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);  // CBaseEntity* pOwner;
     PrepSDKCall_SetReturnInfo(SDKType_CBaseEntity, SDKPass_Pointer); // CBaseEntity*
     SDKCall_CBaseEntity_Create = EndPrepSDKCall();
-
-    /*
-    StartPrepSDKCall(SDKCall_Entity);
-    PrepSDKCall_SetFromConf(config, SDKConf_Signature, "CBaseEntity::CalcAbsoluteVelocity()");
-    SDKCall_CBaseEntity_CalcAbsoluteVelocity = EndPrepSDKCall();
-    */
 
     StartPrepSDKCall(SDKCall_Entity);
     PrepSDKCall_SetFromConf(config, SDKConf_Virtual, "CBaseCombatCharacter::Weapon_ShootPosition()");
@@ -347,11 +341,11 @@ public void OnPluginStart()
     tf_flamethrower_vecrand = FindConVar("tf_flamethrower_vecrand");
 
     // Setup convars. (These values are adjusted for before Jungle Inferno flame mechanics dropped.)
-    notnheavy_jungleinferno_particlecannon = CreateConVar("notnheavy_jungleinferno_particlecannon", "0", "used for meet the team fortress", FCVAR_CHEAT);
-    notnheavy_flamethrower_enable = CreateConVar("notnheavy_flamethrower_enable", "1", "use old flamethrower mechanics?", FCVAR_CHEAT);
-    notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame damage number", FCVAR_CHEAT);
+    notnheavy_flamethrower_enable_flames = CreateConVar("notnheavy_flamethrower_enable_flames", "1", "use old flamethrower mechanics flames?", FCVAR_CHEAT);
     notnheavy_flamethrower_oldafterburn_damage = CreateConVar("notnheavy_flamethrower_oldafterburn_damage", "0", "use old afterburn damage (3 per tick)", FCVAR_CHEAT);
     notnheavy_flamethrower_oldafterburn_duration = CreateConVar("notnheavy_flamethrower_oldafterburn_duration", "0", "use old afterburn duration (constant 10s, 6s with cow mangler)", FCVAR_CHEAT);
+    notnheavy_jungleinferno_particlecannon = CreateConVar("notnheavy_jungleinferno_particlecannon", "0", "used for meet the team fortress", FCVAR_CHEAT);
+    notnheavy_flamethrower_damage = CreateConVar("notnheavy_flamethrower_damage", "6.80", "tf_flame damage number", FCVAR_CHEAT);
     notnheavy_flamethrower_falloff = CreateConVar("notnheavy_flamethrower_falloff", "0.70", "tf_flame falloff percentage when dealing damage", FCVAR_CHEAT);
     notnheavy_flamethrower_falloff.AddChangeHook(AdjustFalloff);
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch();
@@ -638,7 +632,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
 {
-    if (notnheavy_flamethrower_enable.BoolValue)
+    if (notnheavy_flamethrower_enable_flames.BoolValue)
     {
         int flamethrower = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
         if (flamethrower == GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") && IsValidEntity(flamethrower))
@@ -671,7 +665,7 @@ public void OnGameFrame()
 {
     for (int client = 1; client <= MaxClients; ++client)
     {
-        if (IsClientInGame(client) && PlayerData[client].m_flRemoveBurn < GetGameTime() && PlayerData[client].m_flRemoveBurn != 0.00 && notnheavy_flamethrower_enable.BoolValue && notnheavy_flamethrower_oldafterburn_duration.BoolValue)
+        if (IsClientInGame(client) && PlayerData[client].m_flRemoveBurn < GetGameTime() && PlayerData[client].m_flRemoveBurn != 0.00 && notnheavy_flamethrower_oldafterburn_duration.BoolValue)
         {
             PlayerData[client].m_flRemoveBurn = 0.00;
             TF2_RemoveCondition(client, TFCond_OnFire);
@@ -700,7 +694,7 @@ static void SetupPlayerHooks(int entity)
 // Re-write afterburn damage, if the convar notnheavy_flamethrower_oldafterburn_damage is true.
 Action Pre_OnTakeDamage(int victim, int& attacker, int& inflictor, float& damage, int& damagetype, int& weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
-    if (notnheavy_flamethrower_enable.BoolValue && notnheavy_flamethrower_oldafterburn_damage.BoolValue && damagetype == (DMG_BURN | DMG_PREVENT_PHYSICS_FORCE))
+    if (notnheavy_flamethrower_oldafterburn_damage.BoolValue && damagetype == (DMG_BURN | DMG_PREVENT_PHYSICS_FORCE))
     {
         damage = TF_BURNING_DMG;
         if (IsValidEntity(weapon))
@@ -740,7 +734,7 @@ MRESReturn Pre_PrimaryAttack(int entity)
 // This hook emits certain things, either things that I find unnecessary at this moment, or are already handled in the internal function.
 MRESReturn Post_PrimaryAttack(int entity)
 {
-    if (notnheavy_flamethrower_enable.BoolValue)
+    if (notnheavy_flamethrower_enable_flames.BoolValue)
     {
         // Get the pointer for this CTFFlameThrower entity.
         any pEntity = GetEntityAddress(entity);
@@ -892,7 +886,7 @@ MRESReturn FireAirBlast(int entity, DHookParam parameters)
 // Supercede this just to prevent damage-dealing.
 MRESReturn OnCollide(int entity, DHookParam parameters)
 {
-    if (notnheavy_flamethrower_enable.BoolValue)
+    if (notnheavy_flamethrower_enable_flames.BoolValue)
         return MRES_Supercede;
     return MRES_Ignored;
 }
@@ -901,7 +895,7 @@ MRESReturn OnCollide(int entity, DHookParam parameters)
 // Adjust afterburn duration, if notnheavy_flamethrower_oldafterburn_duration is on.
 MRESReturn Burn(Address aThis, DHookParam parameters)
 {   
-    bool preJI = notnheavy_flamethrower_enable.BoolValue && notnheavy_flamethrower_oldafterburn_duration.BoolValue;
+    bool preJI = notnheavy_flamethrower_oldafterburn_duration.BoolValue;
     bool JIparticlecannon = notnheavy_jungleinferno_particlecannon.BoolValue;
     if (!preJI && !JIparticlecannon)
         return MRES_Ignored;
