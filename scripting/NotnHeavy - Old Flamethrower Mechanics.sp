@@ -261,7 +261,7 @@ public Plugin myinfo =
     name = PLUGIN_NAME,
     author = "NotnHeavy",
     description = "An attempt to revert flamethrower mechanics to how they were, pre-Jungle Inferno.",
-    version = "1.0.4",
+    version = "1.0.5",
     url = "none"
 };
 
