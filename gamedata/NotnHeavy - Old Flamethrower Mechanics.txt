@@ -74,10 +74,20 @@
         }
         "Offsets"
         {
-            "MemoryPatch_CTFFlameEntity_OnCollide_Falloff" // find the 0.699999
+            "MemoryPatch_CTFFlameEntity_OnCollide_Falloff" // find the 0.69999999
             {
                 "windows" "357"
                 "linux"   "1065"
+            }
+            "MemoryPatch_CTFFlameEntity_OnCollide_Falloff2" // find the 0.30000001
+            {
+                "windows" "412"
+                "linux"   "305"
+            }
+            "MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Multiplier"
+            {
+                "windows" "1"
+                "linux"   "-1"
             }
 
             "CBaseCombatCharacter::Weapon_ShootPosition()"

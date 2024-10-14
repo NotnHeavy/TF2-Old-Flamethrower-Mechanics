@@ -252,6 +252,11 @@ static any MemoryPatch_CTFFlameEntity_OnCollide_Falloff;
 static any MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old;
 static float MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New;
 
+static any MemoryPatch_CTFFlameEntity_OnCollide_Falloff2;
+static any MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Old;
+static float MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_New;
+static float MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Multiplier;
+
 //////////////////////////////////////////////////////////////////////////////
 // PLUGIN INFO                                                              //
 //////////////////////////////////////////////////////////////////////////////
@@ -333,6 +338,10 @@ public void OnPluginStart()
 
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff = view_as<any>(config.GetMemSig("CTFFlameEntity::OnCollide()")) + config.GetOffset("MemoryPatch_CTFFlameEntity_OnCollide_Falloff");
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old = Dereference(MemoryPatch_CTFFlameEntity_OnCollide_Falloff);
+    
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff2 = view_as<any>(config.GetMemSig("CTFFlameEntity::OnCollide()")) + config.GetOffset("MemoryPatch_CTFFlameEntity_OnCollide_Falloff2");
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Multiplier = float(config.GetOffset("MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Multiplier"));
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Old = Dereference(MemoryPatch_CTFFlameEntity_OnCollide_Falloff2);
 
     delete config;
 
@@ -367,12 +376,15 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     WriteToValue(MemoryPatch_CTFFlameEntity_OnCollide_Falloff, MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Old);
+    WriteToValue(MemoryPatch_CTFFlameEntity_OnCollide_Falloff2, MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Old);
 }
 
 static void MemoryPatch_CTFFlameEntity_OnCollide_Falloff_Patch()
 {
     MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New = notnheavy_flamethrower_falloff.FloatValue;
+    MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_New = (1.00 - notnheavy_flamethrower_falloff.FloatValue) * MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_Multiplier;
     WriteToValue(MemoryPatch_CTFFlameEntity_OnCollide_Falloff, AddressOf(MemoryPatch_CTFFlameEntity_OnCollide_Falloff_New));
+    WriteToValue(MemoryPatch_CTFFlameEntity_OnCollide_Falloff2, AddressOf(MemoryPatch_CTFFlameEntity_OnCollide_Falloff2_New));
 }
 
 //////////////////////////////////////////////////////////////////////////////
